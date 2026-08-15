@@ -1,0 +1,89 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import '../core/constants/ai_prompts.dart';
+import '../core/constants/app_strings.dart';
+import '../models/conversation_message.dart';
+import 'network_service.dart';
+import 'translation_service.dart';
+
+class AIService {
+  static const String _visionRelayUrl =
+      'https://YOUR-BACKEND-RELAY.example.com/vision-query';
+
+  static const Duration _requestTimeout = Duration(seconds: 12);
+
+  static const int _maxHistoryTurns = 6;
+
+  final http.Client _httpClient;
+
+  AIService({http.Client? httpClient})
+    : _httpClient = httpClient ?? http.Client();
+
+  Future<String> processQuery(
+    String query,
+    List<ConversationMessage> history, {
+    Uint8List? imageBytes,
+  }) async {
+    if (!NetworkService().isOnline) {
+      debugPrint('AIService: Device is offline.');
+      return await TranslationService().translate(
+        AppStrings.aiRequiresInternet,
+      );
+    }
+
+    debugPrint(
+      'AIService: sending query="$query" '
+      'withImage=${imageBytes != null} historyLen=${history.length}',
+    );
+
+    try {
+      final requestBody = jsonEncode({
+        'system_prompt': AiPrompts.visionSystemPrompt,
+        'query': query,
+        'image_base64': imageBytes != null ? base64Encode(imageBytes) : null,
+        'history': _recentHistoryAsJson(history),
+      });
+
+      final response = await _httpClient
+          .post(
+            Uri.parse(_visionRelayUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: requestBody,
+          )
+          .timeout(_requestTimeout);
+
+      if (response.statusCode != 200) {
+        debugPrint(
+          'AIService: relay returned ${response.statusCode}: ${response.body}',
+        );
+        return await TranslationService().translate(AppStrings.aiRequestFailed);
+      }
+
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      final answer = decoded['answer'] as String?;
+
+      if (answer == null || answer.trim().isEmpty) {
+        debugPrint('AIService: relay response had no answer field.');
+        return await TranslationService().translate(AppStrings.aiRequestFailed);
+      }
+
+      return answer.trim();
+    } catch (e) {
+      debugPrint('AIService: request failed: $e');
+      return await TranslationService().translate(AppStrings.aiRequestFailed);
+    }
+  }
+
+  List<Map<String, String>> _recentHistoryAsJson(
+    List<ConversationMessage> history,
+  ) {
+    final recent = history.length > _maxHistoryTurns
+        ? history.sublist(history.length - _maxHistoryTurns)
+        : history;
+
+    return recent
+        .map((m) => {'role': m.role.name, 'text': m.text})
+        .toList(growable: false);
+  }
+}
