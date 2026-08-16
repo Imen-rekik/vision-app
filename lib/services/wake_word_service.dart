@@ -4,7 +4,21 @@ import 'speech_recognition_service.dart';
 class WakeWordService {
   final SpeechRecognitionService _speechRecognitionService;
   Function()? _onWakeWordDetected;
+
+  // Whether wake-word mode is *desired* — stays true across restarts,
+  // toggled only by startDetection()/stopDetection(). This is what
+  // isDetecting exposes and what onResult checks before matching.
   bool _isDetecting = false;
+
+  // Whether a listen() call is *currently in-flight* right now. This is
+  // what startDetection()'s re-entrancy guard should check — using
+  // _isDetecting for this too was the bug: after a listen session ended
+  // (timeout/no-match), _isDetecting was never reset, so the delayed
+  // auto-restart's call to startDetection() always hit the guard and
+  // silently did nothing, permanently ending wake-word detection after the
+  // very first timeout.
+  bool _sessionListening = false;
+
   bool _isAppInForeground = true;
 
   WakeWordService({SpeechRecognitionService? speechRecognitionService})
@@ -19,9 +33,10 @@ class WakeWordService {
   }
 
   Future<void> startDetection() async {
-    if (_isDetecting || !_isAppInForeground) return;
+    if (_sessionListening || !_isAppInForeground) return;
 
     _isDetecting = true;
+    _sessionListening = true;
     debugPrint('WakeWordService: starting detection for "Hey Vision"...');
 
     await _speechRecognitionService.startListening(
@@ -43,7 +58,13 @@ class WakeWordService {
       },
       onStatus: (String status) {
         if (status == 'done' || status == 'notListening') {
-          // If detection was interrupted by platform timeout but should still be active, restart safely
+          // This listen session has actually ended — clear the in-flight
+          // flag so the next startDetection() call isn't blocked by its
+          // own guard.
+          _sessionListening = false;
+
+          // If detection was interrupted by platform timeout but should
+          // still be active, restart safely.
           if (_isDetecting && _isAppInForeground) {
             Future.delayed(const Duration(milliseconds: 500), () {
               if (_isDetecting && _isAppInForeground) {
@@ -55,6 +76,10 @@ class WakeWordService {
       },
       onError: (dynamic error) {
         debugPrint('WakeWordService error: $error');
+        // Errors (e.g. error_speech_timeout, error_no_match) also end the
+        // in-flight session without necessarily firing onStatus 'done' —
+        // clear the flag here too so a restart isn't blocked.
+        _sessionListening = false;
       },
     );
   }
@@ -70,6 +95,7 @@ class WakeWordService {
 
   Future<void> stopDetection() async {
     _isDetecting = false;
+    _sessionListening = false;
     await _speechRecognitionService.stopListening();
     debugPrint('WakeWordService: stopped detection.');
   }
@@ -87,6 +113,7 @@ class WakeWordService {
 
   void dispose() {
     _isDetecting = false;
+    _sessionListening = false;
     _speechRecognitionService.dispose();
   }
 }
