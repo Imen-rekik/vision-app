@@ -15,7 +15,7 @@ class AIService {
   static const String _visionRelayUrl =
       'https://vision-ai-relay.vercel.app/api/vision-query';
 
-  static const Duration _requestTimeout = Duration(seconds: 12);
+  static const Duration _requestTimeout = Duration(seconds: 25);
 
   static const int _maxHistoryTurns = 6;
 
