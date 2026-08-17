@@ -11,7 +11,6 @@ import 'network_service.dart';
 import 'translation_service.dart';
 
 class AIService {
-  //
   static const String _visionRelayUrl =
       'https://vision-ai-relay.vercel.app/api/vision-query';
 
@@ -93,6 +92,7 @@ class AIService {
         'query': userUtterance,
         'image_base64': null,
         'history': _recentHistoryAsJson(history),
+        'max_output_tokens': 700,
       });
 
       final response = await _httpClient
