@@ -22,6 +22,7 @@ class AIService {
 
   AIService({http.Client? httpClient})
     : _httpClient = httpClient ?? http.Client();
+
   Future<String> processQuery(
     String query,
     List<ConversationMessage> history, {
@@ -34,47 +35,74 @@ class AIService {
       );
     }
 
-    debugPrint(
-      'AIService: sending query="$query" '
-      'withImage=${imageBytes != null} historyLen=${history.length}',
-    );
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      debugPrint(
+        'AIService: sending query="$query" '
+        'withImage=${imageBytes != null} historyLen=${history.length} '
+        'attempt=$attempt',
+      );
 
-    try {
-      final requestBody = jsonEncode({
-        'system_prompt': AiPrompts.visionSystemPrompt,
-        'query': query,
-        'image_base64': imageBytes != null ? base64Encode(imageBytes) : null,
-        'history': _recentHistoryAsJson(history),
-      });
+      try {
+        final requestBody = jsonEncode({
+          'system_prompt': AiPrompts.visionSystemPrompt,
+          'query': query,
+          'image_base64': imageBytes != null ? base64Encode(imageBytes) : null,
+          'history': _recentHistoryAsJson(history),
+        });
 
-      final response = await _httpClient
-          .post(
-            Uri.parse(_visionRelayUrl),
-            headers: {'Content-Type': 'application/json'},
-            body: requestBody,
-          )
-          .timeout(_requestTimeout);
+        final response = await _httpClient
+            .post(
+              Uri.parse(_visionRelayUrl),
+              headers: {'Content-Type': 'application/json'},
+              body: requestBody,
+            )
+            .timeout(_requestTimeout);
 
-      if (response.statusCode != 200) {
-        debugPrint(
-          'AIService: relay returned ${response.statusCode}: ${response.body}',
-        );
+        if (response.statusCode != 200) {
+          debugPrint(
+            'AIService: relay returned ${response.statusCode}: ${response.body}',
+          );
+
+          if (attempt == 1) {
+            await Future.delayed(const Duration(seconds: 2));
+            continue;
+          }
+
+          return await TranslationService().translate(
+            AppStrings.aiRequestFailed,
+          );
+        }
+
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        final answer = decoded['answer'] as String?;
+
+        if (answer == null || answer.trim().isEmpty) {
+          debugPrint('AIService: relay response had no answer field.');
+
+          if (attempt == 1) {
+            await Future.delayed(const Duration(seconds: 2));
+            continue;
+          }
+
+          return await TranslationService().translate(
+            AppStrings.aiRequestFailed,
+          );
+        }
+
+        return answer.trim();
+      } catch (e) {
+        debugPrint('AIService: request failed: $e');
+
+        if (attempt == 1) {
+          await Future.delayed(const Duration(seconds: 2));
+          continue;
+        }
+
         return await TranslationService().translate(AppStrings.aiRequestFailed);
       }
-
-      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-      final answer = decoded['answer'] as String?;
-
-      if (answer == null || answer.trim().isEmpty) {
-        debugPrint('AIService: relay response had no answer field.');
-        return await TranslationService().translate(AppStrings.aiRequestFailed);
-      }
-
-      return answer.trim();
-    } catch (e) {
-      debugPrint('AIService: request failed: $e');
-      return await TranslationService().translate(AppStrings.aiRequestFailed);
     }
+
+    return await TranslationService().translate(AppStrings.aiRequestFailed);
   }
 
   Future<OnboardingTurnResult?> runOnboardingTurn(
@@ -113,15 +141,18 @@ class AIService {
 
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final answer = decoded['answer'] as String?;
+
       if (answer == null || answer.trim().isEmpty) {
         debugPrint('AIService: onboarding relay response had no answer.');
         return null;
       }
 
       final parsed = OnboardingTurnResult.tryParse(answer);
+
       if (parsed == null) {
         debugPrint('AIService: could not parse onboarding JSON: $answer');
       }
+
       return parsed;
     } catch (e) {
       debugPrint('AIService: onboarding turn failed: $e');
