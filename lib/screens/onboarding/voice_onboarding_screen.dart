@@ -81,9 +81,9 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
       if (result.collectedLanguage != null) {
         collectedLanguage = result.collectedLanguage;
-
         await _speechService.setLanguage(collectedLanguage!);
       }
+
       if (result.collectedName != null) {
         collectedName = result.collectedName;
       }
@@ -95,13 +95,16 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
           await _onboardingService.setPreferredLanguage(collectedLanguage);
           await _onboardingService.setSelectedLanguage(collectedLanguage);
         }
+
         if (collectedName != null) {
           await _onboardingService.setUserName(collectedName);
         }
+
         await _onboardingService.markCompleted();
         await _onboardingService.setInteractiveOnboardingCompleted(true);
 
         if (!mounted) return;
+
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const HomeScreen()),
@@ -112,7 +115,11 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       final heard = await _listenForText(
         listeningStatus: AppStrings.voiceOnboardingStatusListeningLanguage,
       );
-      userUtterance = heard ?? '';
+
+      userUtterance = (heard != null && heard.trim().isNotEmpty)
+          ? heard
+          : '(the user did not say anything)';
+
       if (heard != null && heard.trim().isNotEmpty) {
         onboardingHistory.add(
           ConversationMessage(role: MessageRole.user, text: heard),
@@ -131,6 +138,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       AppStrings.voiceOnboardingScreenTitle,
     );
     _statusText = await _translationService.translate(_currentStatusKey);
+
     if (mounted) setState(() {});
   }
 
@@ -139,23 +147,29 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   Future<void> _setStatus(String statusKey) async {
     _currentStatusKey = statusKey;
     _statusText = await _translationService.translate(statusKey);
+
     if (mounted) setState(() {});
   }
 
   Future<void> _startFlow() async {
     _isWorking = true;
+
     if (mounted) setState(() {});
 
     final rawLanguages = await _speechService.getLanguages();
     _supportedLanguages = LocaleUtils.parseTtsLanguages(rawLanguages);
 
     final preferred = await _onboardingService.getPreferredLanguage();
+
     final deviceLang =
         WidgetsBinding.instance.platformDispatcher.locale.languageCode;
+
     _deviceLocale = deviceLang.isEmpty ? 'en' : deviceLang;
+
     final initialLang = preferred ?? _deviceLocale;
 
     await _speechService.setLanguage(initialLang);
+
     try {
       await _translationService.init(initialLang);
     } catch (_) {}
@@ -170,6 +184,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     await _onboardingService.setPreferredLanguage(selectedLocale);
     await _onboardingService.setSelectedLanguage(selectedLocale);
     await _speechService.setLanguage(selectedLanguage.ttsLocale);
+
     try {
       await _translationService.init(selectedLocale);
     } catch (_) {}
@@ -196,15 +211,18 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     final part5 = await _translationService.translate(
       AppStrings.voiceOnboardingCompletePart5,
     );
+
     final completionMessage =
         '$part1$userName$part2$chosenLanguageName$part3'
         '${AppStrings.wakeWordPhrase}$part4${AppStrings.stopWordPhrase}$part5';
+
     await _speechService.speakAndAwait(completionMessage);
 
     await _onboardingService.markCompleted();
     await _onboardingService.setInteractiveOnboardingCompleted(true);
 
     if (!mounted) return;
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const HomeScreen()),
@@ -226,6 +244,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       }
 
       final match = _normalizeLanguage(chosen);
+
       if (match != null) {
         return match;
       }
@@ -234,13 +253,16 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     }
 
     final fallback = _fallbackLanguageForDevice();
+
     final prefix = await _translationService.translate(
       AppStrings.voiceOnboardingLanguageFallbackPrefix,
     );
     final suffix = await _translationService.translate(
       AppStrings.voiceOnboardingLanguageFallbackSuffix,
     );
+
     await _speechService.speakAndAwait('$prefix${fallback.displayName}$suffix');
+
     return fallback;
   }
 
@@ -257,6 +279,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       );
 
       final normalizedName = _normalizeName(spokenName);
+
       if (normalizedName != null) {
         return normalizedName;
       }
@@ -268,7 +291,9 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     final suffix = await _translationService.translate(
       AppStrings.voiceOnboardingNameFallbackSuffix,
     );
+
     await _speechService.speakAndAwait('$prefix$_defaultGuestName$suffix');
+
     return _defaultGuestName;
   }
 
@@ -280,13 +305,17 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
     _isListening = true;
     _isWorking = true;
+
     await _setStatus(listeningStatus);
 
     final isReady = await _speechRecognitionService.init();
+
     if (!isReady) {
       _isListening = false;
       _isWorking = false;
+
       if (mounted) setState(() {});
+
       return null;
     }
 
@@ -296,7 +325,9 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       await _speechRecognitionService.startListening(
         onResult: (String text, bool isFinal) {
           if (completed) return;
+
           final trimmed = text.trim();
+
           if (trimmed.isNotEmpty) {
             heardAnyText = true;
             lastHeardText = trimmed;
@@ -309,6 +340,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         },
         onStatus: (String status) {
           if (completed) return;
+
           if (status == 'done' || status == 'notListening') {
             completed = true;
             completer.complete(lastHeardText.isEmpty ? null : lastHeardText);
@@ -316,6 +348,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         },
         onError: (dynamic error) {
           if (completed) return;
+
           completed = true;
           completer.complete(null);
         },
@@ -325,6 +358,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
       timeoutTimer = Timer(_sttResponseTimeout, () {
         if (completed || heardAnyText) return;
+
         completed = true;
         completer.complete(null);
       });
@@ -339,6 +373,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
       _isListening = false;
       _isWorking = false;
+
       if (mounted) setState(() {});
     }
   }
@@ -374,7 +409,9 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
   String? _normalizeName(String? rawText) {
     if (rawText == null) return null;
+
     final cleaned = rawText.trim().replaceAll(RegExp(r'\s+'), ' ');
+
     if (cleaned.isEmpty) return null;
 
     if (cleaned.length > 40) {
@@ -393,6 +430,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         'fr-FR',
         'ar-SA',
       ]);
+
       _supportedLanguages = fallback;
     }
 
@@ -454,7 +492,6 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
-
                     ExcludeSemantics(
                       child: Text(
                         _titleText,
