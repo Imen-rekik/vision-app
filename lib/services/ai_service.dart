@@ -1,15 +1,19 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../core/constants/ai_prompts.dart';
 import '../core/constants/app_strings.dart';
+import '../core/constants/onboarding_prompts.dart';
 import '../models/conversation_message.dart';
+import '../models/onboarding_turn_result.dart';
 import 'network_service.dart';
 import 'translation_service.dart';
 
 class AIService {
+  //
   static const String _visionRelayUrl =
-      'https://vision-ai-relay.vercel.app/api/vision-query';
+      'https://YOUR-BACKEND-RELAY.example.com/vision-query';
 
   static const Duration _requestTimeout = Duration(seconds: 12);
 
@@ -19,7 +23,6 @@ class AIService {
 
   AIService({http.Client? httpClient})
     : _httpClient = httpClient ?? http.Client();
-
   Future<String> processQuery(
     String query,
     List<ConversationMessage> history, {
@@ -72,6 +75,57 @@ class AIService {
     } catch (e) {
       debugPrint('AIService: request failed: $e');
       return await TranslationService().translate(AppStrings.aiRequestFailed);
+    }
+  }
+
+  Future<OnboardingTurnResult?> runOnboardingTurn(
+    String userUtterance,
+    List<ConversationMessage> history,
+  ) async {
+    if (!NetworkService().isOnline) {
+      debugPrint('AIService: onboarding turn skipped, device offline.');
+      return null;
+    }
+
+    try {
+      final requestBody = jsonEncode({
+        'system_prompt': OnboardingPrompts.onboardingSystemPrompt,
+        'query': userUtterance,
+        'image_base64': null,
+        'history': _recentHistoryAsJson(history),
+      });
+
+      final response = await _httpClient
+          .post(
+            Uri.parse(_visionRelayUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: requestBody,
+          )
+          .timeout(_requestTimeout);
+
+      if (response.statusCode != 200) {
+        debugPrint(
+          'AIService: onboarding relay returned ${response.statusCode}: '
+          '${response.body}',
+        );
+        return null;
+      }
+
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      final answer = decoded['answer'] as String?;
+      if (answer == null || answer.trim().isEmpty) {
+        debugPrint('AIService: onboarding relay response had no answer.');
+        return null;
+      }
+
+      final parsed = OnboardingTurnResult.tryParse(answer);
+      if (parsed == null) {
+        debugPrint('AIService: could not parse onboarding JSON: $answer');
+      }
+      return parsed;
+    } catch (e) {
+      debugPrint('AIService: onboarding turn failed: $e');
+      return null;
     }
   }
 

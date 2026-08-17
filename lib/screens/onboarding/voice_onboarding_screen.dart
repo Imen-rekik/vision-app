@@ -2,7 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../app/theme/app_theme.dart';
 import '../../core/constants/app_strings.dart';
+import '../../models/conversation_message.dart';
 import '../../models/language_option.dart';
+import '../../models/onboarding_turn_result.dart';
+import '../../services/ai_service.dart';
 import '../../services/onboarding_service.dart';
 import '../../services/speech_recognition_service.dart';
 import '../../services/speech_service.dart';
@@ -28,6 +31,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   final SpeechRecognitionService _speechRecognitionService =
       SpeechRecognitionService();
   final OnboardingService _onboardingService = OnboardingService();
+  final AIService _aiService = AIService();
 
   bool _isListening = false;
   bool _isWorking = false;
@@ -41,23 +45,87 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   @override
   void initState() {
     super.initState();
-    _startFlow();
+    _startAiDrivenOnboarding();
   }
 
-  /// Speaks [englishText] translated into whatever locale TranslationService
-  /// is currently configured for. Falls back to English automatically if
-  /// translation isn't set up yet or fails (TranslationService.translate
-  /// already handles that internally).
+  Future<void> _startAiDrivenOnboarding() async {
+    _isWorking = true;
+    if (mounted) setState(() {});
+
+    final List<ConversationMessage> onboardingHistory = [];
+    String userUtterance = '';
+    String? collectedLanguage;
+    String? collectedName;
+
+    while (true) {
+      final result = await _aiService.runOnboardingTurn(
+        userUtterance,
+        onboardingHistory,
+      );
+
+      if (result == null) {
+        debugPrint(
+          'VoiceOnboardingScreen: AI-driven onboarding failed, '
+          'falling back to scripted flow.',
+        );
+        await _startFlow();
+        return;
+      }
+
+      onboardingHistory.add(
+        ConversationMessage(
+          role: MessageRole.assistant,
+          text: result.spokenText,
+        ),
+      );
+
+      if (result.collectedLanguage != null) {
+        collectedLanguage = result.collectedLanguage;
+
+        await _speechService.setLanguage(collectedLanguage!);
+      }
+      if (result.collectedName != null) {
+        collectedName = result.collectedName;
+      }
+
+      await _speechService.speakAndAwait(result.spokenText);
+
+      if (result.onboardingComplete) {
+        if (collectedLanguage != null) {
+          await _onboardingService.setPreferredLanguage(collectedLanguage);
+          await _onboardingService.setSelectedLanguage(collectedLanguage);
+        }
+        if (collectedName != null) {
+          await _onboardingService.setUserName(collectedName);
+        }
+        await _onboardingService.markCompleted();
+        await _onboardingService.setInteractiveOnboardingCompleted(true);
+
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
+        return;
+      }
+
+      final heard = await _listenForText(
+        listeningStatus: AppStrings.voiceOnboardingStatusListeningLanguage,
+      );
+      userUtterance = heard ?? '';
+      if (heard != null && heard.trim().isNotEmpty) {
+        onboardingHistory.add(
+          ConversationMessage(role: MessageRole.user, text: heard),
+        );
+      }
+    }
+  }
+
   Future<void> _speak(String englishText) async {
     final translated = await _translationService.translate(englishText);
     await _speechService.speakAndAwait(translated);
   }
 
-  /// Re-translates the on-screen title and current status text into
-  /// whatever language TranslationService is currently configured for, and
-  /// triggers a rebuild. This keeps the visible text (which a low-vision or
-  /// sighted-helper user might read) in sync with the app's chosen
-  /// language, on both initial load and after the user picks a language.
   Future<void> _refreshOnScreenText() async {
     _titleText = await _translationService.translate(
       AppStrings.voiceOnboardingScreenTitle,
@@ -66,17 +134,8 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     if (mounted) setState(() {});
   }
 
-  /// Tracks the untranslated (English) key for whatever status is currently
-  /// being shown, so it can be re-translated on demand (e.g. if the
-  /// language changes while a status is on screen) without re-deriving it
-  /// from the already-translated `_statusText`.
   String _currentStatusKey = AppStrings.voiceOnboardingStatusInitial;
 
-  /// Updates [_statusText] from an English [statusKey], translating it into
-  /// the current app language first. This is the single place that writes
-  /// to `_statusText` so that Voice #2 (TalkBack/VoiceOver) — if it were
-  /// ever allowed to read this text — and any sighted glance at the screen
-  /// would see the same language Vision speaks aloud.
   Future<void> _setStatus(String statusKey) async {
     _currentStatusKey = statusKey;
     _statusText = await _translationService.translate(statusKey);
@@ -97,19 +156,10 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     final initialLang = preferred ?? _deviceLocale;
 
     await _speechService.setLanguage(initialLang);
-    // We don't know the user's preferred language yet (that's the question
-    // we're about to ask), so use the device locale as a best-effort guess
-    // for translating the greeting itself.
     try {
       await _translationService.init(initialLang);
-    } catch (_) {
-      // Keep onboarding resilient even if translation setup fails.
-    }
+    } catch (_) {}
 
-    // Translate the on-screen title/status now that a best-effort target
-    // language is set up, so anyone glancing at the screen (e.g. a sighted
-    // helper, or a low-vision user reading rather than listening) sees text
-    // in the same language Vision is about to speak.
     await _refreshOnScreenText();
 
     await _speak(AppStrings.voiceOnboardingGreeting);
@@ -122,21 +172,15 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     await _speechService.setLanguage(selectedLanguage.ttsLocale);
     try {
       await _translationService.init(selectedLocale);
-    } catch (_) {
-      // Keep onboarding resilient even if translation setup fails.
-    }
-    // Re-translate now that the user's *actual* chosen language (not just
-    // the device-locale guess) is known.
+    } catch (_) {}
+
     await _refreshOnScreenText();
 
     final userName = await _askForName();
     await _onboardingService.setUserName(userName);
 
     final chosenLanguageName = selectedLanguage.displayName;
-    // Built from translated fragments around dynamic values (name, chosen
-    // language, wake/stop phrases) rather than translating one interpolated
-    // string, since translate() caches by exact text and the wake/stop
-    // phrases must stay in English regardless of the chosen language.
+
     final part1 = await _translationService.translate(
       AppStrings.voiceOnboardingCompletePart1,
     );
@@ -410,17 +454,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
-                    // ExcludeSemantics: this title/status text is a visual
-                    // echo of what SpeechService is already speaking aloud
-                    // (Voice #1). Without this, a TalkBack/VoiceOver user
-                    // (Voice #2) would have it read out a second time,
-                    // which is redundant at best and, since it was
-                    // previously untranslated, confusing at worst. The
-                    // guided flow here is fully audio-driven, so the visual
-                    // text only needs to serve sighted/low-vision users
-                    // glancing at the screen, translated like everything
-                    // else — it doesn't need to also be screen-reader
-                    // focusable.
+
                     ExcludeSemantics(
                       child: Text(
                         _titleText,
