@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import '../models/conversation_message.dart';
 import '../services/ai_service.dart';
@@ -30,9 +31,22 @@ class ConversationController {
     WakeWordService? wakeWordService,
     SpeechRecognitionService? speechRecognitionService,
     AIService? aiService,
+  }) : this._internal(
+         speechService: speechService,
+
+         speechRecognitionService:
+             speechRecognitionService ?? SpeechRecognitionService(),
+         wakeWordService: wakeWordService,
+         aiService: aiService,
+       );
+
+  ConversationController._internal({
+    required SpeechService speechService,
+    required SpeechRecognitionService speechRecognitionService,
+    WakeWordService? wakeWordService,
+    AIService? aiService,
   }) : _speechService = speechService,
-       _speechRecognitionService =
-           speechRecognitionService ?? SpeechRecognitionService(),
+       _speechRecognitionService = speechRecognitionService,
        _wakeWordService =
            wakeWordService ??
            WakeWordService(speechRecognitionService: speechRecognitionService),
@@ -120,7 +134,6 @@ class ConversationController {
 
         final normalized = text.toLowerCase().trim();
 
-        // Check for STOP COMMAND
         if (_isStopCommand(normalized)) {
           debugPrint(
             'ConversationController: STOP COMMAND detected ("$text") [Gen: $currentGen]',
@@ -143,7 +156,6 @@ class ConversationController {
           _notifyStateChanged();
 
           if (_conversationActive && _isCurrentGeneration(currentGen)) {
-            // Auto-restart listening if conversation is still active for this generation
             Future.delayed(const Duration(milliseconds: 500), () {
               if (_isCurrentGeneration(currentGen) &&
                   _conversationActive &&
@@ -165,13 +177,12 @@ class ConversationController {
     );
   }
 
+  static final RegExp _stopCommandPattern = RegExp(
+    r'\bstop,?\s*(vizio|vizo|vishon|vizion|vision)\w*\b',
+  );
+
   bool _isStopCommand(String text) {
-    return text.contains('stop vision') ||
-        text.contains('stop, vision') ||
-        text == 'stop' ||
-        text == 'stop vision.' ||
-        text.contains('end conversation') ||
-        text.contains('cancel vision');
+    return _stopCommandPattern.hasMatch(text);
   }
 
   Future<void> _handleUserQuery(String query, int currentGen) async {
