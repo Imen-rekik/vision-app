@@ -13,7 +13,7 @@ import 'translation_service.dart';
 class AIService {
   //
   static const String _visionRelayUrl =
-      'https://YOUR-BACKEND-RELAY.example.com/vision-query';
+      'https://vision-ai-relay.vercel.app/api/vision-query';
 
   static const Duration _requestTimeout = Duration(seconds: 12);
 
