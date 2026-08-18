@@ -12,7 +12,6 @@ import '../../widgets/celestial_background.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/voice_orb/orb_state.dart';
 import '../../widgets/voice_orb/voice_orb.dart';
-import '../live_test/live_test_screen.dart';
 import '../permission_recovery/permission_recovery_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -296,17 +295,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Container(color: AppColors.deepMidnight.withValues(alpha: 0.45)),
 
             // Central VoiceOrb Component
-            Center(
-              child: GestureDetector(
-                onLongPress: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const LiveTestScreen()),
-                  );
-                },
-                child: VoiceOrb(state: _orbState),
-              ),
-            ),
+            Center(child: VoiceOrb(state: _orbState)),
           ],
         ),
       ),
