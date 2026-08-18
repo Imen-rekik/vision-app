@@ -46,6 +46,7 @@ dependencies:
   image: ^4.2.0
   gemini_live: ^2026.6.6
   flutter_sound: ^9.2.13
+  record: ^6.2.1 
 
 dev_dependencies:
   flutter_test:

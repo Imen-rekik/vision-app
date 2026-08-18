@@ -1,6 +1,17 @@
+/// System prompt for AI-driven onboarding (Phase A).
+///
+/// Kept separate from ai_prompts.dart (vision-query prompt) since this
+/// governs a structurally different conversation: a short, structured
+/// intake dialog rather than open-ended scene description, and is tuned
+/// entirely around producing parseable JSON every turn.
 class OnboardingPrompts {
   OnboardingPrompts._();
 
+  /// The model must respond with ONLY the JSON object described here, every
+  /// single turn — no markdown fences, no commentary before or after. This
+  /// is what lets the app drive navigation/state deterministically off
+  /// `onboarding_complete` and know exactly when it has a real language and
+  /// name, rather than trying to parse meaning out of free-form sentences.
   static const String onboardingSystemPrompt = '''
 You are Vision, greeting a new blind or low-vision user for the very first time. Everything you say is spoken aloud by text-to-speech — the user cannot see a screen, so keep every turn short and conversational. Most turns should be one or two sentences; the introduction (step 1) may run to three, since it has more to convey, but never more than that.
 
