@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter_sound/flutter_sound.dart';
 import 'package:gemini_live/gemini_live.dart';
 import 'package:http/http.dart' as http;
 import 'package:record/record.dart';
@@ -18,9 +20,25 @@ class _LiveTestScreenState extends State<LiveTestScreen> {
   final AudioRecorder _recorder = AudioRecorder();
   StreamSubscription<List<int>>? _micSubscription;
   bool _isTalking = false;
+  final FlutterSoundPlayer _player = FlutterSoundPlayer();
+  bool _playerReady = false;
+  final List<Uint8List> _audioQueue = [];
+  bool _isFeedingAudio = false;
 
   Future<void> _connect() async {
     setState(() => _status = 'Getting token...');
+
+    if (!_playerReady) {
+      await _player.openPlayer();
+      await _player.startPlayerFromStream(
+        codec: Codec.pcm16,
+        numChannels: 1,
+        sampleRate: 24000,
+        bufferSize: 8192,
+        interleaved: true,
+      );
+      _playerReady = true;
+    }
 
     final tokenResponse = await http.post(
       Uri.parse('https://vision-ai-relay.vercel.app/api/live-token'),
@@ -48,7 +66,14 @@ class _LiveTestScreenState extends State<LiveTestScreen> {
               setState(() => _status = 'Connected!');
             },
             onMessage: (LiveServerMessage message) {
-              setState(() => _status = 'Got a message from Gemini');
+              if (message.data != null) {
+                final bytes = base64Decode(message.data!);
+                _audioQueue.add(bytes);
+                _drainAudioQueue();
+                setState(() => _status = 'Playing reply...');
+              } else {
+                setState(() => _status = 'Got a message from Gemini');
+              }
             },
             onError: (e, s) {
               setState(() => _status = 'Error: $e');
@@ -62,6 +87,16 @@ class _LiveTestScreenState extends State<LiveTestScreen> {
     } catch (e) {
       setState(() => _status = 'Connect failed: $e');
     }
+  }
+
+  Future<void> _drainAudioQueue() async {
+    if (_isFeedingAudio) return;
+    _isFeedingAudio = true;
+    while (_audioQueue.isNotEmpty) {
+      final chunk = _audioQueue.removeAt(0);
+      await _player.feedUint8FromStream(chunk);
+    }
+    _isFeedingAudio = false;
   }
 
   Future<void> _startTalking() async {
@@ -108,6 +143,10 @@ class _LiveTestScreenState extends State<LiveTestScreen> {
     _micSubscription?.cancel();
     _recorder.dispose();
     _session?.close();
+    if (_playerReady) {
+      _player.stopPlayer();
+      _player.closePlayer();
+    }
     super.dispose();
   }
 
