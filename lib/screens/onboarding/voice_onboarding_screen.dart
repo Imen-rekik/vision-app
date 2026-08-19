@@ -98,43 +98,47 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
       final genAI = GoogleGenAI(apiKey: token, apiVersion: 'v1alpha');
 
-      _liveSession = await genAI.live.connect(
-        LiveConnectParameters(
-          model: 'gemini-3.1-flash-live-preview',
+      _liveSession = await genAI.live
+          .connect(
+            LiveConnectParameters(
+              model: 'gemini-3.1-flash-live-preview',
 
-          config: GenerationConfig(responseModalities: [Modality.AUDIO]),
-          systemInstruction: Content(
-            parts: [Part(text: OnboardingPrompts.liveOnboardingSystemPrompt)],
-          ),
-          tools: [OnboardingPrompts.completeOnboardingTool],
-          callbacks: LiveCallbacks(
-            onOpen: () {
-              _startLiveMicStream();
-            },
-            onMessage: (LiveServerMessage message) {
-              if (message.data != null) {
-                final bytes = base64Decode(message.data!);
-                _liveAudioQueue.add(bytes);
-                _drainLiveAudioQueue();
-              }
+              config: GenerationConfig(responseModalities: [Modality.AUDIO]),
+              systemInstruction: Content(
+                parts: [
+                  Part(text: OnboardingPrompts.liveOnboardingSystemPrompt),
+                ],
+              ),
+              tools: [OnboardingPrompts.completeOnboardingTool],
+              callbacks: LiveCallbacks(
+                onOpen: () {
+                  _startLiveMicStream();
+                },
+                onMessage: (LiveServerMessage message) {
+                  if (message.data != null) {
+                    final bytes = base64Decode(message.data!);
+                    _liveAudioQueue.add(bytes);
+                    _drainLiveAudioQueue();
+                  }
 
-              if (message.toolCall != null) {
-                _handleOnboardingToolCall(message.toolCall!);
-              }
-            },
-            onError: (e, s) {
-              debugPrint('VoiceOnboardingScreen: Live API error: $e');
-              _fallBackToAiDrivenOnboarding();
-            },
-            onClose: (code, reason) {
-              debugPrint('VoiceOnboardingScreen: Live API closed: $reason');
-              if (!_onboardingCompletedSuccessfully && mounted) {
-                _fallBackToAiDrivenOnboarding();
-              }
-            },
-          ),
-        ),
-      );
+                  if (message.toolCall != null) {
+                    _handleOnboardingToolCall(message.toolCall!);
+                  }
+                },
+                onError: (e, s) {
+                  debugPrint('VoiceOnboardingScreen: Live API error: $e');
+                  _fallBackToAiDrivenOnboarding();
+                },
+                onClose: (code, reason) {
+                  debugPrint('VoiceOnboardingScreen: Live API closed: $reason');
+                  if (!_onboardingCompletedSuccessfully && mounted) {
+                    _fallBackToAiDrivenOnboarding();
+                  }
+                },
+              ),
+            ),
+          )
+          .timeout(const Duration(seconds: 15));
     } catch (e) {
       debugPrint('VoiceOnboardingScreen: Live onboarding setup failed: $e');
       await _fallBackToAiDrivenOnboarding();
