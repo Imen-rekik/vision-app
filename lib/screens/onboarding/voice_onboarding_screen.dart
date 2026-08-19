@@ -61,6 +61,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   bool _onboardingCompletedSuccessfully = false;
   final Stopwatch _liveTimingStopwatch = Stopwatch();
   bool _firstAudioChunkLogged = false;
+  Timer? _firstResponseWatchdog;
 
   @override
   void initState() {
@@ -141,6 +142,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                   if (message.data != null) {
                     if (!_firstAudioChunkLogged) {
                       _firstAudioChunkLogged = true;
+                      _firstResponseWatchdog?.cancel();
                       debugPrint(
                         'TIMING: first audio chunk received at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
                       );
@@ -212,6 +214,11 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         'TIMING: sending Begin. at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
       );
       _liveSession?.sendText('Begin.');
+
+      _firstResponseWatchdog = Timer(const Duration(seconds: 40), () {
+        debugPrint('TIMING: no response from Gemini after 40s, falling back');
+        _fallBackToAiDrivenOnboarding();
+      });
     } catch (e) {
       debugPrint('VoiceOnboardingScreen: mic stream failed: $e');
       await _fallBackToAiDrivenOnboarding();
@@ -269,6 +276,8 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   }
 
   Future<void> _stopLiveSession() async {
+    _firstResponseWatchdog?.cancel();
+    _firstResponseWatchdog = null;
     await _liveMicSubscription?.cancel();
     _liveMicSubscription = null;
     await _liveRecorder.stop();
@@ -697,6 +706,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   @override
   void dispose() {
     _speechRecognitionService.stopListening();
+    _firstResponseWatchdog?.cancel();
     _liveMicSubscription?.cancel();
     _liveRecorder.dispose();
     _liveSession?.close();
