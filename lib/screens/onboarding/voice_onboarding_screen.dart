@@ -139,6 +139,15 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                   _startLiveMicStream();
                 },
                 onMessage: (LiveServerMessage message) {
+                  debugPrint(
+                    'RAW MESSAGE at ${_liveTimingStopwatch.elapsedMilliseconds}ms: '
+                    'data=${message.data != null} '
+                    'toolCall=${message.toolCall != null} '
+                    'text=${message.text} '
+                    'serverContent=${message.serverContent} '
+                    'turnComplete=${message.serverContent?.turnComplete}',
+                  );
+
                   if (message.data != null) {
                     if (!_firstAudioChunkLogged) {
                       _firstAudioChunkLogged = true;
