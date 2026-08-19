@@ -59,6 +59,8 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   bool _isFeedingLiveAudio = false;
   bool _liveFallbackTriggered = false;
   bool _onboardingCompletedSuccessfully = false;
+  final Stopwatch _liveTimingStopwatch = Stopwatch();
+  bool _firstAudioChunkLogged = false;
 
   @override
   void initState() {
@@ -69,10 +71,15 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   Future<void> _startLiveDrivenOnboarding() async {
     _isWorking = true;
     _liveFallbackTriggered = false;
+    _firstAudioChunkLogged = false;
+    _liveTimingStopwatch
+      ..reset()
+      ..start();
     if (mounted) setState(() {});
 
     try {
       if (!_livePlayerReady) {
+        debugPrint('TIMING: opening player at 0ms');
         await _livePlayer.openPlayer();
         await _livePlayer.startPlayerFromStream(
           codec: Codec.pcm16,
@@ -82,11 +89,20 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
           interleaved: true,
         );
         _livePlayerReady = true;
+        debugPrint(
+          'TIMING: player ready at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
+        );
       }
 
+      debugPrint(
+        'TIMING: requesting token at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
+      );
       final tokenResponse = await http
           .post(Uri.parse(_liveTokenUrl))
           .timeout(const Duration(seconds: 15));
+      debugPrint(
+        'TIMING: got token response at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
+      );
 
       if (tokenResponse.statusCode != 200) {
         await _fallBackToAiDrivenOnboarding();
@@ -97,6 +113,10 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       final token = tokenData['token'] as String;
 
       final genAI = GoogleGenAI(apiKey: token, apiVersion: 'v1alpha');
+
+      debugPrint(
+        'TIMING: starting connect at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
+      );
 
       _liveSession = await genAI.live
           .connect(
@@ -112,10 +132,19 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
               tools: [OnboardingPrompts.completeOnboardingTool],
               callbacks: LiveCallbacks(
                 onOpen: () {
+                  debugPrint(
+                    'TIMING: connected (onOpen) at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
+                  );
                   _startLiveMicStream();
                 },
                 onMessage: (LiveServerMessage message) {
                   if (message.data != null) {
+                    if (!_firstAudioChunkLogged) {
+                      _firstAudioChunkLogged = true;
+                      debugPrint(
+                        'TIMING: first audio chunk received at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
+                      );
+                    }
                     final bytes = base64Decode(message.data!);
                     _liveAudioQueue.add(bytes);
                     _drainLiveAudioQueue();
@@ -154,6 +183,9 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         return;
       }
 
+      debugPrint(
+        'TIMING: starting mic stream at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
+      );
       final stream = await _liveRecorder.startStream(
         const RecordConfig(
           encoder: AudioEncoder.pcm16bits,
@@ -168,11 +200,17 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
           ),
         ),
       );
+      debugPrint(
+        'TIMING: mic stream ready at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
+      );
 
       _liveMicSubscription = stream.listen((chunk) {
         _liveSession?.sendAudio(chunk);
       });
 
+      debugPrint(
+        'TIMING: sending Begin. at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
+      );
       _liveSession?.sendText('Begin.');
     } catch (e) {
       debugPrint('VoiceOnboardingScreen: mic stream failed: $e');
