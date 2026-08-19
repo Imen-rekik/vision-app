@@ -58,6 +58,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   final List<Uint8List> _liveAudioQueue = [];
   bool _isFeedingLiveAudio = false;
   bool _liveFallbackTriggered = false;
+  bool _onboardingCompletedSuccessfully = false;
 
   @override
   void initState() {
