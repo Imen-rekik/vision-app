@@ -9,9 +9,8 @@ import 'package:record/record.dart';
 import '../../app/theme/app_theme.dart';
 import '../../core/constants/app_strings.dart';
 import '../../core/constants/onboarding_prompts.dart';
-import '../../models/conversation_message.dart';
 import '../../models/language_option.dart';
-import '../../services/ai_service.dart';
+import '../../services/network_service.dart';
 import '../../services/onboarding_service.dart';
 import '../../services/speech_recognition_service.dart';
 import '../../services/speech_service.dart';
@@ -39,7 +38,6 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   final SpeechRecognitionService _speechRecognitionService =
       SpeechRecognitionService();
   final OnboardingService _onboardingService = OnboardingService();
-  final AIService _aiService = AIService();
 
   bool _isListening = false;
   bool _isWorking = false;
@@ -66,7 +64,14 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   @override
   void initState() {
     super.initState();
-    _startLiveDrivenOnboarding();
+    _initAndStart();
+  }
+
+  Future<void> _initAndStart() async {
+    await _speechService.init();
+    _speechService.speak('Setting things up for you, one moment.');
+
+    await _startLiveDrivenOnboarding();
   }
 
   Future<void> _startLiveDrivenOnboarding() async {
@@ -77,6 +82,12 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       ..reset()
       ..start();
     if (mounted) setState(() {});
+
+    if (!NetworkService().isOnline) {
+      debugPrint('VoiceOnboardingScreen: offline, skipping live session');
+      await _fallBackToAiDrivenOnboarding();
+      return;
+    }
 
     try {
       if (!_livePlayerReady) {
@@ -100,12 +111,16 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       );
       final tokenResponse = await http
           .post(Uri.parse(_liveTokenUrl))
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 8));
       debugPrint(
         'TIMING: got token response at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
       );
 
       if (tokenResponse.statusCode != 200) {
+        debugPrint(
+          'VoiceOnboardingScreen: token request failed '
+          '(${tokenResponse.statusCode}), falling back',
+        );
         await _fallBackToAiDrivenOnboarding();
         return;
       }
@@ -141,9 +156,9 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                   );
                   _liveSession?.sendText('Begin.');
 
-                  _firstResponseWatchdog = Timer(const Duration(seconds: 40), () {
+                  _firstResponseWatchdog = Timer(const Duration(seconds: 5), () {
                     debugPrint(
-                      'TIMING: no response from Gemini after 40s, falling back',
+                      'TIMING: no response from Gemini after 5s, falling back directly',
                     );
                     _fallBackToAiDrivenOnboarding();
                   });
@@ -166,6 +181,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                     if (!_firstAudioChunkLogged) {
                       _firstAudioChunkLogged = true;
                       _firstResponseWatchdog?.cancel();
+                      _speechService.stop();
                       debugPrint(
                         'TIMING: first audio chunk received at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
                       );
@@ -192,7 +208,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
               ),
             ),
           )
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 10));
     } catch (e) {
       debugPrint('VoiceOnboardingScreen: Live onboarding setup failed: $e');
       await _fallBackToAiDrivenOnboarding();
@@ -293,12 +309,20 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     _firstResponseWatchdog = null;
     await _liveMicSubscription?.cancel();
     _liveMicSubscription = null;
-    await _liveRecorder.stop();
+    try {
+      await _liveRecorder.stop();
+    } catch (e) {
+      debugPrint('VoiceOnboardingScreen: recorder stop error (ignored): $e');
+    }
     _liveSession?.close();
     _liveSession = null;
 
     if (_livePlayerReady) {
-      await _livePlayer.stopPlayer();
+      try {
+        await _livePlayer.stopPlayer();
+      } catch (e) {
+        debugPrint('VoiceOnboardingScreen: player stop error (ignored): $e');
+      }
       _livePlayerReady = false;
     }
   }
@@ -308,87 +332,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     _liveFallbackTriggered = true;
 
     await _stopLiveSession();
-    await _startAiDrivenOnboarding();
-  }
-
-  Future<void> _startAiDrivenOnboarding() async {
-    _isWorking = true;
-    if (mounted) setState(() {});
-
-    final List<ConversationMessage> onboardingHistory = [];
-    String userUtterance = '';
-    String? collectedLanguage;
-    String? collectedName;
-
-    while (true) {
-      final result = await _aiService.runOnboardingTurn(
-        userUtterance,
-        onboardingHistory,
-      );
-
-      if (result == null) {
-        debugPrint(
-          'VoiceOnboardingScreen: AI-driven onboarding failed, '
-          'falling back to scripted flow.',
-        );
-        await _startFlow();
-        return;
-      }
-
-      onboardingHistory.add(
-        ConversationMessage(
-          role: MessageRole.assistant,
-          text: result.spokenText,
-        ),
-      );
-
-      if (result.collectedLanguage != null) {
-        collectedLanguage = result.collectedLanguage;
-        await _speechService.setLanguage(collectedLanguage!);
-      }
-
-      if (result.collectedName != null) {
-        collectedName = result.collectedName;
-      }
-
-      await _speechService.speakAndAwait(result.spokenText);
-
-      if (result.onboardingComplete) {
-        if (collectedLanguage != null) {
-          await _onboardingService.setPreferredLanguage(collectedLanguage);
-          await _onboardingService.setSelectedLanguage(collectedLanguage);
-        }
-
-        if (collectedName != null) {
-          await _onboardingService.setUserName(collectedName);
-        }
-
-        await _onboardingService.markCompleted();
-        await _onboardingService.setInteractiveOnboardingCompleted(true);
-
-        if (!mounted) return;
-
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
-        return;
-      }
-
-      final heard = await _listenForText(
-        listeningStatus: AppStrings.voiceOnboardingStatusListeningLanguage,
-      );
-
-      userUtterance = (heard != null && heard.trim().isNotEmpty)
-          ? heard
-          : '(the user did not say anything)';
-
-      if (heard != null && heard.trim().isNotEmpty) {
-        onboardingHistory.add(
-          ConversationMessage(role: MessageRole.user, text: heard),
-        );
-      }
-    }
+    await _startFlow();
   }
 
   Future<void> _speak(String englishText) async {
