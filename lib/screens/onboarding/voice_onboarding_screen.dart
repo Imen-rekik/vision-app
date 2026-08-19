@@ -136,7 +136,21 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                   debugPrint(
                     'TIMING: connected (onOpen) at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
                   );
-                  _startLiveMicStream();
+                  debugPrint(
+                    'TIMING: sending Begin. (before mic) at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
+                  );
+                  _liveSession?.sendText('Begin.');
+
+                  _firstResponseWatchdog = Timer(const Duration(seconds: 40), () {
+                    debugPrint(
+                      'TIMING: no response from Gemini after 40s, falling back',
+                    );
+                    _fallBackToAiDrivenOnboarding();
+                  });
+
+                  Future.delayed(const Duration(milliseconds: 800), () {
+                    _startLiveMicStream();
+                  });
                 },
                 onMessage: (LiveServerMessage message) {
                   debugPrint(
@@ -217,16 +231,6 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
       _liveMicSubscription = stream.listen((chunk) {
         _liveSession?.sendAudio(chunk);
-      });
-
-      debugPrint(
-        'TIMING: sending Begin. at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
-      );
-      _liveSession?.sendText('Begin.');
-
-      _firstResponseWatchdog = Timer(const Duration(seconds: 40), () {
-        debugPrint('TIMING: no response from Gemini after 40s, falling back');
-        _fallBackToAiDrivenOnboarding();
       });
     } catch (e) {
       debugPrint('VoiceOnboardingScreen: mic stream failed: $e');
