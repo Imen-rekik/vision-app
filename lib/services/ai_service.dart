@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../core/constants/ai_prompts.dart';
@@ -121,7 +120,6 @@ class AIService {
           'query': userUtterance,
           'image_base64': null,
           'history': _recentHistoryAsJson(history),
-          'max_output_tokens': 1500,
         });
 
         final response = await _httpClient

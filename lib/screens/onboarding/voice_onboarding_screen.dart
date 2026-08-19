@@ -9,7 +9,9 @@ import 'package:record/record.dart';
 import '../../app/theme/app_theme.dart';
 import '../../core/constants/app_strings.dart';
 import '../../core/constants/onboarding_prompts.dart';
+import '../../models/conversation_message.dart';
 import '../../models/language_option.dart';
+import '../../services/ai_service.dart';
 import '../../services/network_service.dart';
 import '../../services/onboarding_service.dart';
 import '../../services/speech_recognition_service.dart';
@@ -38,6 +40,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   final SpeechRecognitionService _speechRecognitionService =
       SpeechRecognitionService();
   final OnboardingService _onboardingService = OnboardingService();
+  final AIService _aiService = AIService();
 
   bool _isListening = false;
   bool _isWorking = false;
@@ -152,19 +155,17 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                     'TIMING: connected (onOpen) at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
                   );
                   debugPrint(
-                    'TIMING: sending Begin. (before mic) at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
+                    'TIMING: sending greeting prompt to Gemini Live at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
                   );
-                  _liveSession?.sendText('Begin.');
+                  _liveSession?.sendText(
+                    'Please greet the user warmly as Vision, introduce yourself, and ask what language they would like to speak.',
+                  );
 
-                  _firstResponseWatchdog = Timer(const Duration(seconds: 5), () {
+                  _firstResponseWatchdog = Timer(const Duration(seconds: 8), () {
                     debugPrint(
-                      'TIMING: no response from Gemini after 5s, falling back directly',
+                      'TIMING: no response from Gemini after 8s, falling back to AI turn-based onboarding',
                     );
                     _fallBackToAiDrivenOnboarding();
-                  });
-
-                  Future.delayed(const Duration(milliseconds: 800), () {
-                    _startLiveMicStream();
                   });
                 },
                 onMessage: (LiveServerMessage message) {
@@ -185,6 +186,8 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                       debugPrint(
                         'TIMING: first audio chunk received at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
                       );
+                      // Start mic stream now that Gemini is producing its opening speech turn
+                      _startLiveMicStream();
                     }
                     final bytes = base64Decode(message.data!);
                     _liveAudioQueue.add(bytes);
@@ -332,7 +335,87 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     _liveFallbackTriggered = true;
 
     await _stopLiveSession();
-    await _startFlow();
+    await _startAiDrivenOnboarding();
+  }
+
+  Future<void> _startAiDrivenOnboarding() async {
+    _isWorking = true;
+    if (mounted) setState(() {});
+
+    final List<ConversationMessage> onboardingHistory = [];
+    String userUtterance = '';
+    String? collectedLanguage;
+    String? collectedName;
+
+    while (true) {
+      final result = await _aiService.runOnboardingTurn(
+        userUtterance,
+        onboardingHistory,
+      );
+
+      if (result == null) {
+        debugPrint(
+          'VoiceOnboardingScreen: AI-driven onboarding failed, '
+          'falling back to scripted flow.',
+        );
+        await _startFlow();
+        return;
+      }
+
+      onboardingHistory.add(
+        ConversationMessage(
+          role: MessageRole.assistant,
+          text: result.spokenText,
+        ),
+      );
+
+      if (result.collectedLanguage != null) {
+        collectedLanguage = result.collectedLanguage;
+        await _speechService.setLanguage(collectedLanguage!);
+      }
+
+      if (result.collectedName != null) {
+        collectedName = result.collectedName;
+      }
+
+      await _speechService.speakAndAwait(result.spokenText);
+
+      if (result.onboardingComplete) {
+        if (collectedLanguage != null) {
+          await _onboardingService.setPreferredLanguage(collectedLanguage);
+          await _onboardingService.setSelectedLanguage(collectedLanguage);
+        }
+
+        if (collectedName != null) {
+          await _onboardingService.setUserName(collectedName);
+        }
+
+        await _onboardingService.markCompleted();
+        await _onboardingService.setInteractiveOnboardingCompleted(true);
+
+        if (!mounted) return;
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
+        return;
+      }
+
+      final heard = await _listenForText(
+        listeningStatus: AppStrings.voiceOnboardingStatusListeningLanguage,
+      );
+
+      userUtterance = (heard != null && heard.trim().isNotEmpty)
+          ? heard
+          : '(the user did not say anything)';
+
+      if (heard != null && heard.trim().isNotEmpty) {
+        onboardingHistory.add(
+          ConversationMessage(role: MessageRole.user, text: heard),
+        );
+      }
+    }
   }
 
   Future<void> _speak(String englishText) async {
