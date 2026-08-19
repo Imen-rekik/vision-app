@@ -83,7 +83,9 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         _livePlayerReady = true;
       }
 
-      final tokenResponse = await http.post(Uri.parse(_liveTokenUrl));
+      final tokenResponse = await http
+          .post(Uri.parse(_liveTokenUrl))
+          .timeout(const Duration(seconds: 15));
 
       if (tokenResponse.statusCode != 200) {
         await _fallBackToAiDrivenOnboarding();
@@ -148,6 +150,13 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         encoder: AudioEncoder.pcm16bits,
         sampleRate: 16000,
         numChannels: 1,
+        echoCancel: true,
+        noiseSuppress: true,
+        autoGain: true,
+        androidConfig: AndroidRecordConfig(
+          audioSource: AndroidAudioSource.voiceCommunication,
+          audioManagerMode: AudioManagerMode.modeInCommunication,
+        ),
       ),
     );
 
