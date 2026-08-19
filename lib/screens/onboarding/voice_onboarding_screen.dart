@@ -122,8 +122,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       _liveSession = await genAI.live
           .connect(
             LiveConnectParameters(
-              model: 'gemini-3.1-flash-live-preview',
-
+              model: 'gemini-2.0-flash-exp',
               config: GenerationConfig(responseModalities: [Modality.AUDIO]),
               systemInstruction: Content(
                 parts: [
@@ -136,10 +135,6 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                   debugPrint(
                     'TIMING: connected (onOpen) at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
                   );
-                  debugPrint(
-                    'TIMING: sending Begin. (before mic) at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
-                  );
-                  _liveSession?.sendText('Begin.');
 
                   _firstResponseWatchdog = Timer(const Duration(seconds: 40), () {
                     debugPrint(
@@ -148,7 +143,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                     _fallBackToAiDrivenOnboarding();
                   });
 
-                  Future.delayed(const Duration(milliseconds: 800), () {
+                  Future.delayed(const Duration(milliseconds: 1000), () {
                     _startLiveMicStream();
                   });
                 },
