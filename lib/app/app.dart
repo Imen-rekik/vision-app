@@ -15,7 +15,7 @@ class VisionApp extends StatelessWidget {
       title: 'Vision',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      initialRoute: '/live-test',
+      initialRoute: '/splash',
       routes: {
         '/splash': (_) => const SplashScreen(),
         '/permissions': (_) => const PermissionsScreen(),

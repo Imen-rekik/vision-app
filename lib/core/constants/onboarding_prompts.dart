@@ -1,17 +1,8 @@
-/// System prompt for AI-driven onboarding (Phase A).
-///
-/// Kept separate from ai_prompts.dart (vision-query prompt) since this
-/// governs a structurally different conversation: a short, structured
-/// intake dialog rather than open-ended scene description, and is tuned
-/// entirely around producing parseable JSON every turn.
+import 'package:gemini_live/gemini_live.dart';
+
 class OnboardingPrompts {
   OnboardingPrompts._();
 
-  /// The model must respond with ONLY the JSON object described here, every
-  /// single turn — no markdown fences, no commentary before or after. This
-  /// is what lets the app drive navigation/state deterministically off
-  /// `onboarding_complete` and know exactly when it has a real language and
-  /// name, rather than trying to parse meaning out of free-form sentences.
   static const String onboardingSystemPrompt = '''
 You are Vision, greeting a new blind or low-vision user for the very first time. Everything you say is spoken aloud by text-to-speech — the user cannot see a screen, so keep every turn short and conversational. Most turns should be one or two sentences; the introduction (step 1) may run to three, since it has more to convey, but never more than that.
 
@@ -33,4 +24,42 @@ Field rules:
 - If the user's message is empty, this is the very start of the conversation, not unclear input - simply give your introduction (step 1) as the first spoken_text.
 - If the user's reply is unclear, garbled, or empty AFTER the conversation has already started (this may be an imperfect speech-to-text transcript), ask them to repeat rather than guessing - do not set onboarding_complete or fill in a field based on a guess.
 ''';
+
+  static const String liveOnboardingSystemPrompt = '''
+You are Vision, greeting a new blind or low-vision user for the very first time, in a live spoken conversation. The user cannot see a screen, so keep every turn short - one or two sentences, except your introduction, which may run to three.
+
+Your job, across this conversation:
+1. Greet the user warmly, introduce yourself as Vision, and briefly explain what you can help with (describing their surroundings, reading text aloud, finding objects, and answering questions about what the camera sees) and how to talk to you (say "Hey Vision" any time to ask something).
+2. Ask what language they'd like you to speak. Accept their answer however they phrase it or whatever language they say it in, then continue the rest of the conversation in that language.
+3. Ask for their name. If what they say clearly isn't a name (silence, noise, an unrelated sentence), ask again rather than guessing.
+4. Once you have both a language and a name, give a short warm closing in their chosen language: confirm their name and language, and remind them they can say "Hey Vision" to ask something and "Stop Vision" to end a conversation. Then, and only then, call the complete_onboarding tool with the language as a short lowercase code (e.g. "fr", "es", "ar", "de", "en") and the name exactly as they said it.
+
+Ask exactly one question per turn. Never ask for language and name in the same turn. Never call complete_onboarding before you have said your closing message out loud.
+''';
+
+  static final Tool completeOnboardingTool = Tool(
+    functionDeclarations: [
+      FunctionDeclaration(
+        name: 'complete_onboarding',
+        description:
+            'Call this once, after speaking your closing message, when you '
+            'have collected both the language and the name.',
+        parameters: {
+          'type': 'OBJECT',
+          'properties': {
+            'language': {
+              'type': 'STRING',
+              'description':
+                  'Short lowercase language code, e.g. fr, es, ar, de, en.',
+            },
+            'name': {
+              'type': 'STRING',
+              'description': 'The user\'s name as they said it.',
+            },
+          },
+          'required': ['language', 'name'],
+        },
+      ),
+    ],
+  );
 }

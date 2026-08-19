@@ -1,7 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter_sound/flutter_sound.dart';
+import 'package:gemini_live/gemini_live.dart';
+import 'package:http/http.dart' as http;
+import 'package:record/record.dart';
 import '../../app/theme/app_theme.dart';
 import '../../core/constants/app_strings.dart';
+import '../../core/constants/onboarding_prompts.dart';
 import '../../models/conversation_message.dart';
 import '../../models/language_option.dart';
 import '../../services/ai_service.dart';
@@ -25,6 +32,8 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   static const Duration _sttResponseTimeout = Duration(seconds: 6);
   static const int _maxSttRetries = 3;
   static const String _defaultGuestName = 'Guest';
+  static const String _liveTokenUrl =
+      'https://vision-ai-relay.vercel.app/api/live-token';
 
   final SpeechService _speechService = SpeechService();
   final SpeechRecognitionService _speechRecognitionService =
@@ -41,10 +50,180 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
   final TranslationService _translationService = TranslationService();
 
+  LiveSession? _liveSession;
+  final AudioRecorder _liveRecorder = AudioRecorder();
+  StreamSubscription<List<int>>? _liveMicSubscription;
+  final FlutterSoundPlayer _livePlayer = FlutterSoundPlayer();
+  bool _livePlayerReady = false;
+  final List<Uint8List> _liveAudioQueue = [];
+  bool _isFeedingLiveAudio = false;
+  bool _liveFallbackTriggered = false;
+
   @override
   void initState() {
     super.initState();
-    _startAiDrivenOnboarding();
+    _startLiveDrivenOnboarding();
+  }
+
+  Future<void> _startLiveDrivenOnboarding() async {
+    _isWorking = true;
+    _liveFallbackTriggered = false;
+    if (mounted) setState(() {});
+
+    try {
+      if (!_livePlayerReady) {
+        await _livePlayer.openPlayer();
+        await _livePlayer.startPlayerFromStream(
+          codec: Codec.pcm16,
+          numChannels: 1,
+          sampleRate: 24000,
+          bufferSize: 8192,
+          interleaved: true,
+        );
+        _livePlayerReady = true;
+      }
+
+      final tokenResponse = await http.post(Uri.parse(_liveTokenUrl));
+
+      if (tokenResponse.statusCode != 200) {
+        await _fallBackToAiDrivenOnboarding();
+        return;
+      }
+
+      final tokenData = jsonDecode(tokenResponse.body) as Map<String, dynamic>;
+      final token = tokenData['token'] as String;
+
+      final genAI = GoogleGenAI(apiKey: token, apiVersion: 'v1alpha');
+
+      _liveSession = await genAI.live.connect(
+        LiveConnectParameters(
+          model: 'gemini-3.1-flash-live-preview',
+
+          config: GenerationConfig(responseModalities: [Modality.AUDIO]),
+          systemInstruction: Content(
+            parts: [Part(text: OnboardingPrompts.liveOnboardingSystemPrompt)],
+          ),
+          tools: [OnboardingPrompts.completeOnboardingTool],
+          callbacks: LiveCallbacks(
+            onOpen: () {
+              _startLiveMicStream();
+            },
+            onMessage: (LiveServerMessage message) {
+              if (message.data != null) {
+                final bytes = base64Decode(message.data!);
+                _liveAudioQueue.add(bytes);
+                _drainLiveAudioQueue();
+              }
+
+              if (message.toolCall != null) {
+                _handleOnboardingToolCall(message.toolCall!);
+              }
+            },
+            onError: (e, s) {
+              debugPrint('VoiceOnboardingScreen: Live API error: $e');
+              _fallBackToAiDrivenOnboarding();
+            },
+            onClose: (code, reason) {
+              debugPrint('VoiceOnboardingScreen: Live API closed: $reason');
+            },
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('VoiceOnboardingScreen: Live onboarding setup failed: $e');
+      await _fallBackToAiDrivenOnboarding();
+    }
+  }
+
+  Future<void> _startLiveMicStream() async {
+    final hasPermission = await _liveRecorder.hasPermission();
+
+    if (!hasPermission) {
+      await _fallBackToAiDrivenOnboarding();
+      return;
+    }
+
+    final stream = await _liveRecorder.startStream(
+      const RecordConfig(
+        encoder: AudioEncoder.pcm16bits,
+        sampleRate: 16000,
+        numChannels: 1,
+      ),
+    );
+
+    _liveMicSubscription = stream.listen((chunk) {
+      _liveSession?.sendAudio(chunk);
+    });
+  }
+
+  Future<void> _drainLiveAudioQueue() async {
+    if (_isFeedingLiveAudio) return;
+    _isFeedingLiveAudio = true;
+    while (_liveAudioQueue.isNotEmpty) {
+      final chunk = _liveAudioQueue.removeAt(0);
+      await _livePlayer.feedUint8FromStream(chunk);
+    }
+    _isFeedingLiveAudio = false;
+  }
+
+  Future<void> _handleOnboardingToolCall(LiveServerToolCall toolCall) async {
+    for (final call in toolCall.functionCalls ?? const <FunctionCall>[]) {
+      if (call.name != 'complete_onboarding') continue;
+      if (call.id == null) continue;
+
+      final args = call.args ?? const {};
+      final language = args['language'] as String?;
+      final name = args['name'] as String?;
+
+      _liveSession?.sendFunctionResponse(
+        id: call.id!,
+        name: call.name!,
+        response: {'result': 'success'},
+      );
+
+      await _stopLiveSession();
+
+      if (language != null) {
+        await _onboardingService.setPreferredLanguage(language);
+        await _onboardingService.setSelectedLanguage(language);
+      }
+
+      if (name != null) {
+        await _onboardingService.setUserName(name);
+      }
+
+      await _onboardingService.markCompleted();
+      await _onboardingService.setInteractiveOnboardingCompleted(true);
+
+      if (!mounted) return;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+      );
+      return;
+    }
+  }
+
+  Future<void> _stopLiveSession() async {
+    await _liveMicSubscription?.cancel();
+    _liveMicSubscription = null;
+    await _liveRecorder.stop();
+    _liveSession?.close();
+    _liveSession = null;
+
+    if (_livePlayerReady) {
+      await _livePlayer.stopPlayer();
+      _livePlayerReady = false;
+    }
+  }
+
+  Future<void> _fallBackToAiDrivenOnboarding() async {
+    if (_liveFallbackTriggered) return;
+    _liveFallbackTriggered = true;
+
+    await _stopLiveSession();
+    await _startAiDrivenOnboarding();
   }
 
   Future<void> _startAiDrivenOnboarding() async {
@@ -455,6 +634,12 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   @override
   void dispose() {
     _speechRecognitionService.stopListening();
+    _liveMicSubscription?.cancel();
+    _liveRecorder.dispose();
+    _liveSession?.close();
+    if (_livePlayerReady) {
+      _livePlayer.stopPlayer();
+    }
     super.dispose();
   }
 
