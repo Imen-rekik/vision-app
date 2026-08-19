@@ -128,6 +128,9 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
             },
             onClose: (code, reason) {
               debugPrint('VoiceOnboardingScreen: Live API closed: $reason');
+              if (!_onboardingCompletedSuccessfully && mounted) {
+                _fallBackToAiDrivenOnboarding();
+              }
             },
           ),
         ),
@@ -139,31 +142,38 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   }
 
   Future<void> _startLiveMicStream() async {
-    final hasPermission = await _liveRecorder.hasPermission();
+    try {
+      final hasPermission = await _liveRecorder.hasPermission();
 
-    if (!hasPermission) {
-      await _fallBackToAiDrivenOnboarding();
-      return;
-    }
+      if (!hasPermission) {
+        await _fallBackToAiDrivenOnboarding();
+        return;
+      }
 
-    final stream = await _liveRecorder.startStream(
-      const RecordConfig(
-        encoder: AudioEncoder.pcm16bits,
-        sampleRate: 16000,
-        numChannels: 1,
-        echoCancel: true,
-        noiseSuppress: true,
-        autoGain: true,
-        androidConfig: AndroidRecordConfig(
-          audioSource: AndroidAudioSource.voiceCommunication,
-          audioManagerMode: AudioManagerMode.modeInCommunication,
+      final stream = await _liveRecorder.startStream(
+        const RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: 16000,
+          numChannels: 1,
+          echoCancel: true,
+          noiseSuppress: true,
+          autoGain: true,
+          androidConfig: AndroidRecordConfig(
+            audioSource: AndroidAudioSource.voiceCommunication,
+            audioManagerMode: AudioManagerMode.modeInCommunication,
+          ),
         ),
-      ),
-    );
+      );
 
-    _liveMicSubscription = stream.listen((chunk) {
-      _liveSession?.sendAudio(chunk);
-    });
+      _liveMicSubscription = stream.listen((chunk) {
+        _liveSession?.sendAudio(chunk);
+      });
+
+      _liveSession?.sendText('Begin.');
+    } catch (e) {
+      debugPrint('VoiceOnboardingScreen: mic stream failed: $e');
+      await _fallBackToAiDrivenOnboarding();
+    }
   }
 
   Future<void> _drainLiveAudioQueue() async {
@@ -191,6 +201,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         response: {'result': 'success'},
       );
 
+      _onboardingCompletedSuccessfully = true;
       await _stopLiveSession();
 
       if (language != null) {
