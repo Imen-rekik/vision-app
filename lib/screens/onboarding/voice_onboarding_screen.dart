@@ -93,9 +93,11 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     }
 
     try {
-      if (!_livePlayerReady) {
-        debugPrint('TIMING: opening player at 0ms');
+      if (!_livePlayer.isOpen()) {
         await _livePlayer.openPlayer();
+      }
+      if (!_livePlayerReady) {
+        debugPrint('TIMING: opening player stream at 0ms');
         await _livePlayer.startPlayerFromStream(
           codec: Codec.pcm16,
           numChannels: 1,
