@@ -93,11 +93,9 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     }
 
     try {
-      if (!_livePlayer.isOpen()) {
-        await _livePlayer.openPlayer();
-      }
       if (!_livePlayerReady) {
-        debugPrint('TIMING: opening player stream at 0ms');
+        debugPrint('TIMING: opening player at 0ms');
+        await _livePlayer.openPlayer();
         await _livePlayer.startPlayerFromStream(
           codec: Codec.pcm16,
           numChannels: 1,
@@ -142,7 +140,6 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       _liveSession = await genAI.live
           .connect(
             LiveConnectParameters(
-              // 1. Use valid Live API model identifier
               model: 'gemini-2.0-flash-exp',
               config: GenerationConfig(responseModalities: [Modality.AUDIO]),
               systemInstruction: Content(
@@ -155,15 +152,15 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                 onOpen: () {
                   debugPrint('TIMING: Connected via Live WebSocket');
 
-                  // 2. Set response timeout watchdog
                   _firstResponseWatchdog = Timer(const Duration(seconds: 20), () {
                     if (!_firstAudioChunkLogged && mounted) {
-                      debugPrint('TIMING: No audio from Gemini after 20s, falling back...');
+                      debugPrint(
+                        'TIMING: No audio from Gemini after 20s, falling back...',
+                      );
                       _fallBackToAiDrivenOnboarding();
                     }
                   });
 
-                  // 3. Delay microphone stream initiation to ensure server readiness
                   Future.delayed(const Duration(milliseconds: 1000), () {
                     if (mounted) _startLiveMicStream();
                   });
@@ -230,7 +227,6 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         _liveSession?.sendAudio(chunk);
       });
 
-      // Cleanly trigger the AI's greeting response after mic activation
       _liveSession?.sendText('Hello, begin onboarding.');
     } catch (e) {
       debugPrint('VoiceOnboardingScreen: mic stream failed: $e');

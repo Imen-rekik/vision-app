@@ -38,10 +38,12 @@ class OnboardingTurnResult {
 
           return OnboardingTurnResult(
             spokenText: spokenText.trim(),
-            collectedLanguage: (lang != null && lang != 'null' && lang.trim().isNotEmpty)
+            collectedLanguage:
+                (lang != null && lang != 'null' && lang.trim().isNotEmpty)
                 ? lang.trim()
                 : null,
-            collectedName: (name != null && name != 'null' && name.trim().isNotEmpty)
+            collectedName:
+                (name != null && name != 'null' && name.trim().isNotEmpty)
                 ? name.trim()
                 : null,
             onboardingComplete: complete,
@@ -54,20 +56,24 @@ class OnboardingTurnResult {
 
     // Fallback: Regex extraction if standard jsonDecode fails
     try {
-      final spokenMatch =
-          RegExp(r'"spoken_text"\s*:\s*"((?:[^"\\]|\\.)*)"').firstMatch(raw);
+      final spokenMatch = RegExp(
+        r'"spoken_text"\s*:\s*"((?:[^"\\]|\\.)*)"',
+      ).firstMatch(raw);
       if (spokenMatch != null) {
         final spokenText = spokenMatch
             .group(1)
             ?.replaceAll(r'\"', '"')
             .replaceAll(r'\n', '\n');
         if (spokenText != null && spokenText.trim().isNotEmpty) {
-          final langMatch =
-              RegExp(r'"collected_language"\s*:\s*"([^"]+)"').firstMatch(raw);
-          final nameMatch =
-              RegExp(r'"collected_name"\s*:\s*"([^"]+)"').firstMatch(raw);
-          final completeMatch =
-              RegExp(r'"onboarding_complete"\s*:\s*(true|false)').firstMatch(raw);
+          final langMatch = RegExp(
+            r'"collected_language"\s*:\s*"([^"]+)"',
+          ).firstMatch(raw);
+          final nameMatch = RegExp(
+            r'"collected_name"\s*:\s*"([^"]+)"',
+          ).firstMatch(raw);
+          final completeMatch = RegExp(
+            r'"onboarding_complete"\s*:\s*(true|false)',
+          ).firstMatch(raw);
 
           return OnboardingTurnResult(
             spokenText: spokenText.trim(),

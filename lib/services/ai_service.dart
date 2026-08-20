@@ -158,10 +158,16 @@ class AIService {
           return null;
         }
 
+        debugPrint('AIService: raw relay answer: $answer');
         final parsed = OnboardingTurnResult.tryParse(answer);
 
         if (parsed == null) {
           debugPrint('AIService: could not parse onboarding JSON: $answer');
+        } else {
+          debugPrint(
+            'AIService: parsed turn — complete=${parsed.onboardingComplete} '
+            'lang=${parsed.collectedLanguage} name=${parsed.collectedName}',
+          );
         }
 
         return parsed;
