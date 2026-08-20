@@ -140,8 +140,8 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       _liveSession = await genAI.live
           .connect(
             LiveConnectParameters(
-              model: 'gemini-3.1-flash-live-preview',
-
+              // 1. Use valid Live API model identifier
+              model: 'gemini-2.0-flash-exp',
               config: GenerationConfig(responseModalities: [Modality.AUDIO]),
               systemInstruction: Content(
                 parts: [
@@ -151,43 +151,26 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
               tools: [OnboardingPrompts.completeOnboardingTool],
               callbacks: LiveCallbacks(
                 onOpen: () {
-                  debugPrint(
-                    'TIMING: connected (onOpen) at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
-                  );
-                  debugPrint(
-                    'TIMING: sending greeting prompt to Gemini Live at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
-                  );
-                  _liveSession?.sendText(
-                    'Please greet the user warmly as Vision, introduce yourself, and ask what language they would like to speak.',
-                  );
+                  debugPrint('TIMING: Connected via Live WebSocket');
 
-                  _firstResponseWatchdog = Timer(const Duration(seconds: 8), () {
-                    debugPrint(
-                      'TIMING: no response from Gemini after 8s, falling back to AI turn-based onboarding',
-                    );
-                    _fallBackToAiDrivenOnboarding();
+                  // 2. Set response timeout watchdog
+                  _firstResponseWatchdog = Timer(const Duration(seconds: 20), () {
+                    if (!_firstAudioChunkLogged && mounted) {
+                      debugPrint('TIMING: No audio from Gemini after 20s, falling back...');
+                      _fallBackToAiDrivenOnboarding();
+                    }
+                  });
+
+                  // 3. Delay microphone stream initiation to ensure server readiness
+                  Future.delayed(const Duration(milliseconds: 1000), () {
+                    if (mounted) _startLiveMicStream();
                   });
                 },
                 onMessage: (LiveServerMessage message) {
-                  debugPrint(
-                    'RAW MESSAGE at ${_liveTimingStopwatch.elapsedMilliseconds}ms: '
-                    'data=${message.data != null} '
-                    'toolCall=${message.toolCall != null} '
-                    'text=${message.text} '
-                    'serverContent=${message.serverContent} '
-                    'turnComplete=${message.serverContent?.turnComplete}',
-                  );
-
                   if (message.data != null) {
                     if (!_firstAudioChunkLogged) {
                       _firstAudioChunkLogged = true;
                       _firstResponseWatchdog?.cancel();
-                      _speechService.stop();
-                      debugPrint(
-                        'TIMING: first audio chunk received at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
-                      );
-                      // Start mic stream now that Gemini is producing its opening speech turn
-                      _startLiveMicStream();
                     }
                     final bytes = base64Decode(message.data!);
                     _liveAudioQueue.add(bytes);
@@ -203,7 +186,6 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                   _fallBackToAiDrivenOnboarding();
                 },
                 onClose: (code, reason) {
-                  debugPrint('VoiceOnboardingScreen: Live API closed: $reason');
                   if (!_onboardingCompletedSuccessfully && mounted) {
                     _fallBackToAiDrivenOnboarding();
                   }
@@ -211,7 +193,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
               ),
             ),
           )
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 15));
     } catch (e) {
       debugPrint('VoiceOnboardingScreen: Live onboarding setup failed: $e');
       await _fallBackToAiDrivenOnboarding();
@@ -227,9 +209,6 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         return;
       }
 
-      debugPrint(
-        'TIMING: starting mic stream at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
-      );
       final stream = await _liveRecorder.startStream(
         const RecordConfig(
           encoder: AudioEncoder.pcm16bits,
@@ -244,13 +223,13 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
           ),
         ),
       );
-      debugPrint(
-        'TIMING: mic stream ready at ${_liveTimingStopwatch.elapsedMilliseconds}ms',
-      );
 
       _liveMicSubscription = stream.listen((chunk) {
         _liveSession?.sendAudio(chunk);
       });
+
+      // Cleanly trigger the AI's greeting response after mic activation
+      _liveSession?.sendText('Hello, begin onboarding.');
     } catch (e) {
       debugPrint('VoiceOnboardingScreen: mic stream failed: $e');
       await _fallBackToAiDrivenOnboarding();
