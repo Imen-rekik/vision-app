@@ -95,4 +95,12 @@ class AppStrings {
   static const String noCameraHardware =
       "No camera hardware detected on this device.";
   static const String retryCamera = "Retry Camera";
+
+  static const String liveConnectionProblem =
+      "There's a problem with the vision assistant right now. "
+      "I won't be able to warn you automatically, so please be careful.";
+  static const String liveConnectionRestored =
+      "The vision assistant is working again.";
+  static const String liveUnavailableDuringConversation =
+      "I can't reach the assistant right now. Please try again in a moment.";
 }

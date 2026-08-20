@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import '../models/conversation_message.dart';
 import '../services/ai_service.dart';
 import '../services/speech_recognition_service.dart';
@@ -121,6 +122,9 @@ class ConversationController {
     _processing = false;
     _speaking = false;
     _notifyStateChanged();
+
+    SystemSound.play(SystemSoundType.click);
+    HapticFeedback.lightImpact();
 
     debugPrint(
       'ConversationController: listening for user speech [Gen: $currentGen]...',
