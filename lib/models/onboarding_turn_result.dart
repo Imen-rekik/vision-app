@@ -14,28 +14,71 @@ class OnboardingTurnResult {
   });
 
   static OnboardingTurnResult? tryParse(String raw) {
-    final cleaned = raw
-        .trim()
-        .replaceAll(RegExp(r'^```(json)?'), '')
-        .replaceAll(RegExp(r'```$'), '')
+    if (raw.trim().isEmpty) return null;
+
+    String cleaned = raw
+        .replaceAll(RegExp(r'```json\s*', caseSensitive: false), '')
+        .replaceAll(RegExp(r'```'), '')
         .trim();
+
+    final firstBrace = cleaned.indexOf('{');
+    final lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace != -1 && lastBrace != -1 && lastBrace > firstBrace) {
+      cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+    }
 
     try {
       final decoded = jsonDecode(cleaned);
-      if (decoded is! Map<String, dynamic>) return null;
+      if (decoded is Map<String, dynamic>) {
+        final spokenText = decoded['spoken_text']?.toString();
+        if (spokenText != null && spokenText.trim().isNotEmpty) {
+          final lang = decoded['collected_language']?.toString();
+          final name = decoded['collected_name']?.toString();
+          final complete = decoded['onboarding_complete'] == true;
 
-      final spokenText = decoded['spoken_text'];
-      final onboardingComplete = decoded['onboarding_complete'];
-      if (spokenText is! String || onboardingComplete is! bool) return null;
-
-      return OnboardingTurnResult(
-        spokenText: spokenText,
-        collectedLanguage: decoded['collected_language'] as String?,
-        collectedName: decoded['collected_name'] as String?,
-        onboardingComplete: onboardingComplete,
-      );
+          return OnboardingTurnResult(
+            spokenText: spokenText.trim(),
+            collectedLanguage: (lang != null && lang != 'null' && lang.trim().isNotEmpty)
+                ? lang.trim()
+                : null,
+            collectedName: (name != null && name != 'null' && name.trim().isNotEmpty)
+                ? name.trim()
+                : null,
+            onboardingComplete: complete,
+          );
+        }
+      }
     } catch (_) {
-      return null;
+      // Fall through to regex extraction fallback
     }
+
+    // Fallback: Regex extraction if standard jsonDecode fails
+    try {
+      final spokenMatch =
+          RegExp(r'"spoken_text"\s*:\s*"((?:[^"\\]|\\.)*)"').firstMatch(raw);
+      if (spokenMatch != null) {
+        final spokenText = spokenMatch
+            .group(1)
+            ?.replaceAll(r'\"', '"')
+            .replaceAll(r'\n', '\n');
+        if (spokenText != null && spokenText.trim().isNotEmpty) {
+          final langMatch =
+              RegExp(r'"collected_language"\s*:\s*"([^"]+)"').firstMatch(raw);
+          final nameMatch =
+              RegExp(r'"collected_name"\s*:\s*"([^"]+)"').firstMatch(raw);
+          final completeMatch =
+              RegExp(r'"onboarding_complete"\s*:\s*(true|false)').firstMatch(raw);
+
+          return OnboardingTurnResult(
+            spokenText: spokenText.trim(),
+            collectedLanguage: langMatch?.group(1),
+            collectedName: nameMatch?.group(1),
+            onboardingComplete: completeMatch?.group(1) == 'true',
+          );
+        }
+      }
+    } catch (_) {}
+
+    return null;
   }
 }
