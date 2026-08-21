@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../screens/home/home_screen.dart';
-import '../screens/live_test/live_test_screen.dart';
 import '../screens/onboarding/permissions_screen.dart';
 import '../screens/onboarding/voice_onboarding_screen.dart';
 import '../screens/splash/splash_screen.dart';
@@ -21,7 +20,6 @@ class VisionApp extends StatelessWidget {
         '/permissions': (_) => const PermissionsScreen(),
         '/voice-onboarding': (_) => const VoiceOnboardingScreen(),
         '/home': (_) => const HomeScreen(),
-        '/live-test': (_) => const LiveTestScreen(),
       },
     );
   }
