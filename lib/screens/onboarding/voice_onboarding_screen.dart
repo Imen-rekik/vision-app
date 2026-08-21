@@ -77,6 +77,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   final Stopwatch _turnStopwatch = Stopwatch();
   int _turnBytesReceived = 0;
   Timer? _turnCompletionTimer;
+  Timer? _initialResponseWatchdog;
 
   void _setActivityState(VoiceActivityState activity, {String? statusText}) {
     if (!mounted) return;
@@ -183,17 +184,13 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
               callbacks: LiveCallbacks(
                 onOpen: () {
                   debugPrint(
-                    'VoiceOnboardingScreen: Connected via Live API ($resolvedLangName / $resolvedLangCode)',
+                    'VoiceOnboardingScreen: WebSocket connected ($resolvedLangName / $resolvedLangCode)',
                   );
                   if (!mounted) return;
 
                   _setActivityState(
                     VoiceActivityState.gettingReady,
                     statusText: 'Connected. Getting ready...',
-                  );
-
-                  _liveSession?.sendText(
-                    'Start the onboarding greeting in $resolvedLangName (language code: $resolvedLangCode) now.',
                   );
                 },
                 onMessage: (LiveServerMessage message) {
@@ -224,6 +221,28 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
           .timeout(const Duration(seconds: 15));
 
       _isConnecting = false;
+
+      debugPrint(
+        'VoiceOnboardingScreen: Session ready. Sending initial greeting trigger...',
+      );
+
+      _initialResponseWatchdog?.cancel();
+      _initialResponseWatchdog = Timer(const Duration(seconds: 7), () {
+        if (_turnBytesReceived == 0 &&
+            mounted &&
+            !_onboardingCompletedSuccessfully) {
+          debugPrint(
+            'VoiceOnboardingScreen: Watchdog re-sending initial greeting trigger...',
+          );
+          _liveSession?.sendText(
+            'Start the onboarding greeting in $resolvedLangName (language code: $resolvedLangCode) now.',
+          );
+        }
+      });
+
+      _liveSession?.sendText(
+        'Start the onboarding greeting in $resolvedLangName (language code: $resolvedLangCode) now.',
+      );
     } catch (e) {
       debugPrint('VoiceOnboardingScreen: Live setup failed: $e');
       _isConnecting = false;
@@ -237,6 +256,9 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
   void _handleLiveMessage(LiveServerMessage message) {
     if (message.data != null) {
+      _initialResponseWatchdog?.cancel();
+      _initialResponseWatchdog = null;
+
       if (_isMicActive) {
         _stopLiveMicStream();
       }
@@ -452,6 +474,9 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   }
 
   Future<void> _cleanupLiveResources() async {
+    _initialResponseWatchdog?.cancel();
+    _initialResponseWatchdog = null;
+
     _turnCompletionTimer?.cancel();
     _turnCompletionTimer = null;
 
@@ -468,6 +493,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
   @override
   void dispose() {
+    _initialResponseWatchdog?.cancel();
     _turnCompletionTimer?.cancel();
     _liveMicSubscription?.cancel();
     _liveRecorder.dispose();
