@@ -22,6 +22,35 @@ import '../../widgets/celestial_background.dart';
 import '../../widgets/glass_card.dart';
 import '../home/home_screen.dart';
 
+enum OnboardingVoiceMode {
+  aiLive('AI Live Voice', Icons.graphic_eq_rounded, AppColors.electricCyan),
+  aiTurnBased('AI Assistant Voice', Icons.smart_toy_rounded, Color(0xFF9D4EDD)),
+  scripted(
+    'Scripted Voice',
+    Icons.record_voice_over_rounded,
+    Colors.orangeAccent,
+  );
+
+  final String label;
+  final IconData icon;
+  final Color color;
+
+  const OnboardingVoiceMode(this.label, this.icon, this.color);
+}
+
+enum VoiceActivityState {
+  idle('Ready', Icons.radio_button_checked_rounded, Colors.grey),
+  thinking('Thinking...', Icons.psychology_rounded, Colors.amberAccent),
+  speaking('Speaking...', Icons.volume_up_rounded, Color(0xFFC77DFF)),
+  listening('Listening...', Icons.mic_rounded, AppColors.electricCyan);
+
+  final String label;
+  final IconData icon;
+  final Color color;
+
+  const VoiceActivityState(this.label, this.icon, this.color);
+}
+
 class VoiceOnboardingScreen extends StatefulWidget {
   const VoiceOnboardingScreen({super.key});
 
@@ -49,6 +78,9 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   List<LanguageOption> _supportedLanguages = const [];
   String _deviceLocale = 'en';
 
+  OnboardingVoiceMode _currentMode = OnboardingVoiceMode.aiLive;
+  VoiceActivityState _activityState = VoiceActivityState.idle;
+
   final TranslationService _translationService = TranslationService();
 
   LiveSession? _liveSession;
@@ -64,6 +96,23 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   bool _firstAudioChunkLogged = false;
   Timer? _firstResponseWatchdog;
 
+  void _setActivityState(VoiceActivityState activity, {String? statusText}) {
+    if (!mounted) return;
+    setState(() {
+      _activityState = activity;
+      if (statusText != null) {
+        _statusText = statusText;
+      }
+    });
+  }
+
+  void _setMode(OnboardingVoiceMode mode) {
+    if (!mounted) return;
+    setState(() {
+      _currentMode = mode;
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -72,19 +121,33 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
   Future<void> _initAndStart() async {
     await _speechService.init();
+    _setMode(OnboardingVoiceMode.aiLive);
+    _setActivityState(
+      VoiceActivityState.speaking,
+      statusText: 'Setting things up for you...',
+    );
     _speechService.speak('Setting things up for you, one moment.');
 
     await _startLiveDrivenOnboarding();
   }
 
+  void _setLiveStatus(String text) {
+    if (!mounted) return;
+    setState(() => _statusText = text);
+  }
+
   Future<void> _startLiveDrivenOnboarding() async {
+    _setMode(OnboardingVoiceMode.aiLive);
     _isWorking = true;
     _liveFallbackTriggered = false;
     _firstAudioChunkLogged = false;
     _liveTimingStopwatch
       ..reset()
       ..start();
-    if (mounted) setState(() {});
+    _setActivityState(
+      VoiceActivityState.thinking,
+      statusText: 'Connecting to Vision...',
+    );
 
     if (!NetworkService().isOnline) {
       debugPrint('VoiceOnboardingScreen: offline, skipping live session');
@@ -140,7 +203,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       _liveSession = await genAI.live
           .connect(
             LiveConnectParameters(
-              model: 'gemini-2.0-flash-exp',
+              model: 'gemini-2.0-flash-realtime-exp',
               config: GenerationConfig(responseModalities: [Modality.AUDIO]),
               systemInstruction: Content(
                 parts: [
@@ -151,6 +214,10 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
               callbacks: LiveCallbacks(
                 onOpen: () {
                   debugPrint('TIMING: Connected via Live WebSocket');
+                  _setActivityState(
+                    VoiceActivityState.thinking,
+                    statusText: 'Connected. Getting ready...',
+                  );
 
                   _firstResponseWatchdog = Timer(const Duration(seconds: 20), () {
                     if (!_firstAudioChunkLogged && mounted) {
@@ -171,9 +238,20 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                       _firstAudioChunkLogged = true;
                       _firstResponseWatchdog?.cancel();
                     }
+                    _setActivityState(
+                      VoiceActivityState.speaking,
+                      statusText: 'AI Speaking...',
+                    );
                     final bytes = base64Decode(message.data!);
                     _liveAudioQueue.add(bytes);
                     _drainLiveAudioQueue();
+                  }
+
+                  if (message.serverContent?.turnComplete == true) {
+                    _setActivityState(
+                      VoiceActivityState.listening,
+                      statusText: 'Listening...',
+                    );
                   }
 
                   if (message.toolCall != null) {
@@ -182,6 +260,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                 },
                 onError: (e, s) {
                   debugPrint('VoiceOnboardingScreen: Live API error: $e');
+                  _setLiveStatus('Having trouble connecting...');
                   _fallBackToAiDrivenOnboarding();
                 },
                 onClose: (code, reason) {
@@ -227,6 +306,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         _liveSession?.sendAudio(chunk);
       });
 
+      _setLiveStatus('Listening...');
       _liveSession?.sendText('Hello, begin onboarding.');
     } catch (e) {
       debugPrint('VoiceOnboardingScreen: mic stream failed: $e');
@@ -260,6 +340,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       );
 
       _onboardingCompletedSuccessfully = true;
+      _setLiveStatus('All set!');
       await _stopLiveSession();
 
       if (language != null) {
@@ -316,6 +397,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   }
 
   Future<void> _startAiDrivenOnboarding() async {
+    _setMode(OnboardingVoiceMode.aiTurnBased);
     _isWorking = true;
     if (mounted) setState(() {});
 
@@ -325,6 +407,11 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     String? collectedName;
 
     while (true) {
+      _setActivityState(
+        VoiceActivityState.thinking,
+        statusText: 'AI Thinking...',
+      );
+
       final result = await _aiService.runOnboardingTurn(
         userUtterance,
         onboardingHistory,
@@ -355,6 +442,10 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         collectedName = result.collectedName;
       }
 
+      _setActivityState(
+        VoiceActivityState.speaking,
+        statusText: 'AI Speaking...',
+      );
       await _speechService.speakAndAwait(result.spokenText);
 
       if (result.onboardingComplete) {
@@ -396,6 +487,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   }
 
   Future<void> _speak(String englishText) async {
+    _setActivityState(VoiceActivityState.speaking);
     final translated = await _translationService.translate(englishText);
     await _speechService.speakAndAwait(translated);
   }
@@ -419,6 +511,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   }
 
   Future<void> _startFlow() async {
+    _setMode(OnboardingVoiceMode.scripted);
     _isWorking = true;
 
     if (mounted) setState(() {});
@@ -483,6 +576,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         '$part1$userName$part2$chosenLanguageName$part3'
         '${AppStrings.wakeWordPhrase}$part4${AppStrings.stopWordPhrase}$part5';
 
+    _setActivityState(VoiceActivityState.speaking);
     await _speechService.speakAndAwait(completionMessage);
 
     await _onboardingService.markCompleted();
@@ -574,12 +668,14 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     _isWorking = true;
 
     await _setStatus(listeningStatus);
+    _setActivityState(VoiceActivityState.listening);
 
     final isReady = await _speechRecognitionService.init();
 
     if (!isReady) {
       _isListening = false;
       _isWorking = false;
+      _setActivityState(VoiceActivityState.idle);
 
       if (mounted) setState(() {});
 
@@ -640,6 +736,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
       _isListening = false;
       _isWorking = false;
+      _setActivityState(VoiceActivityState.idle);
 
       if (mounted) setState(() {});
     }
@@ -744,28 +841,86 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
               child: GlassCard(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 28,
-                  vertical: 40,
+                  vertical: 36,
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: AppColors.electricCyan.withValues(alpha: 0.15),
-                        border: Border.all(
-                          color: AppColors.electricCyan.withValues(alpha: 0.5),
-                          width: 2,
-                        ),
+                    // Mode Indicator Badge (AI Live vs AI Assistant vs Scripted)
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 6,
                       ),
-                      child: const Icon(
-                        Icons.record_voice_over_rounded,
-                        size: 64,
-                        color: AppColors.electricCyan,
+                      decoration: BoxDecoration(
+                        color: _currentMode.color.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: _currentMode.color.withValues(alpha: 0.6),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _currentMode.color.withValues(alpha: 0.2),
+                            blurRadius: 10,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _currentMode.icon,
+                            size: 16,
+                            color: _currentMode.color,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _currentMode.label,
+                            style: TextStyle(
+                              color: _currentMode.color,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 24),
+
+                    // Central Activity Graphic / Dynamic Icon
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _activityState.color.withValues(alpha: 0.15),
+                        border: Border.all(
+                          color: _activityState.color.withValues(alpha: 0.5),
+                          width: 2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _activityState.color.withValues(alpha: 0.25),
+                            blurRadius: 16,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        _activityState == VoiceActivityState.idle
+                            ? Icons.record_voice_over_rounded
+                            : _activityState.icon,
+                        size: 64,
+                        color: _activityState.color,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Title Text
                     ExcludeSemantics(
                       child: Text(
                         _titleText,
@@ -776,6 +931,46 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
+
+                    // Real-Time Activity Status Badge (LISTENING / SPEAKING / THINKING)
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 250),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _activityState.color.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: _activityState.color.withValues(alpha: 0.7),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _activityState.icon,
+                            size: 18,
+                            color: _activityState.color,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _activityState.label.toUpperCase(),
+                            style: TextStyle(
+                              color: _activityState.color,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Detailed Status Subtext
                     ExcludeSemantics(
                       child: Text(
                         _statusText,
@@ -786,11 +981,13 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 32),
+                    const SizedBox(height: 28),
+
+                    // Loading Indicator
                     if (_isListening || _isWorking)
-                      const ExcludeSemantics(
+                      ExcludeSemantics(
                         child: CircularProgressIndicator(
-                          color: AppColors.electricCyan,
+                          color: _activityState.color,
                         ),
                       ),
                   ],
