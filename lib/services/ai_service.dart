@@ -3,9 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../core/constants/ai_prompts.dart';
 import '../core/constants/app_strings.dart';
-import '../core/constants/onboarding_prompts.dart';
 import '../models/conversation_message.dart';
-import '../models/onboarding_turn_result.dart';
 import 'network_service.dart';
 import 'translation_service.dart';
 
@@ -102,88 +100,6 @@ class AIService {
     }
 
     return await TranslationService().translate(AppStrings.aiRequestFailed);
-  }
-
-  Future<OnboardingTurnResult?> runOnboardingTurn(
-    String userUtterance,
-    List<ConversationMessage> history,
-  ) async {
-    if (!NetworkService().isOnline) {
-      debugPrint('AIService: onboarding turn skipped, device offline.');
-      return null;
-    }
-
-    for (var attempt = 1; attempt <= 2; attempt++) {
-      try {
-        final requestBody = jsonEncode({
-          'system_prompt': OnboardingPrompts.onboardingSystemPrompt,
-          'query': userUtterance,
-          'image_base64': null,
-          'history': _recentHistoryAsJson(history),
-        });
-
-        final response = await _httpClient
-            .post(
-              Uri.parse(_visionRelayUrl),
-              headers: {'Content-Type': 'application/json'},
-              body: requestBody,
-            )
-            .timeout(_requestTimeout);
-
-        if (response.statusCode != 200) {
-          debugPrint(
-            'AIService: onboarding relay returned ${response.statusCode}: '
-            '${response.body}',
-          );
-
-          if (attempt == 1) {
-            await Future.delayed(const Duration(seconds: 2));
-            continue;
-          }
-
-          return null;
-        }
-
-        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-        final answer = decoded['answer'] as String?;
-
-        if (answer == null || answer.trim().isEmpty) {
-          debugPrint('AIService: onboarding relay response had no answer.');
-
-          if (attempt == 1) {
-            await Future.delayed(const Duration(seconds: 2));
-            continue;
-          }
-
-          return null;
-        }
-
-        debugPrint('AIService: raw relay answer: $answer');
-        final parsed = OnboardingTurnResult.tryParse(answer);
-
-        if (parsed == null) {
-          debugPrint('AIService: could not parse onboarding JSON: $answer');
-        } else {
-          debugPrint(
-            'AIService: parsed turn — complete=${parsed.onboardingComplete} '
-            'lang=${parsed.collectedLanguage} name=${parsed.collectedName}',
-          );
-        }
-
-        return parsed;
-      } catch (e) {
-        debugPrint('AIService: onboarding turn failed: $e');
-
-        if (attempt == 1) {
-          await Future.delayed(const Duration(seconds: 2));
-          continue;
-        }
-
-        return null;
-      }
-    }
-
-    return null;
   }
 
   List<Map<String, String>> _recentHistoryAsJson(
