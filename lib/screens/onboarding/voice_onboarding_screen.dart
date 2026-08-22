@@ -11,7 +11,6 @@ import 'package:record/record.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../core/constants/app_strings.dart';
-import '../../core/constants/onboarding_prompts.dart';
 import '../../services/network_service.dart';
 import '../../services/onboarding_service.dart';
 import '../../utils/locale_utils.dart';
@@ -50,7 +49,8 @@ class VoiceOnboardingScreen extends StatefulWidget {
   State<VoiceOnboardingScreen> createState() => _VoiceOnboardingScreenState();
 }
 
-class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
+class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen>
+    with WidgetsBindingObserver {
   static const String _liveTokenUrl =
       'https://vision-ai-relay.vercel.app/api/live-token';
 
@@ -77,7 +77,6 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   final Stopwatch _turnStopwatch = Stopwatch();
   int _turnBytesReceived = 0;
   Timer? _turnCompletionTimer;
-  Timer? _initialResponseWatchdog;
 
   void _setActivityState(VoiceActivityState activity, {String? statusText}) {
     if (!mounted) return;
@@ -97,7 +96,25 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _startLiveDrivenOnboarding();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      debugPrint(
+        'VoiceOnboardingScreen: App backgrounded. Cleaning up live resources...',
+      );
+      _cleanupLiveResources();
+    } else if (state == AppLifecycleState.resumed) {
+      if (!_onboardingCompletedSuccessfully &&
+          mounted &&
+          _activityState == VoiceActivityState.error) {
+        _startLiveDrivenOnboarding();
+      }
+    }
   }
 
   void _showError(String message) {
@@ -151,7 +168,14 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       final resolvedLangName = LocaleUtils.getDisplayName(resolvedLangCode);
 
       final tokenResponse = await http
-          .post(Uri.parse(_liveTokenUrl))
+          .post(
+            Uri.parse(_liveTokenUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'languageCode': resolvedLangCode,
+              'languageName': resolvedLangName,
+            }),
+          )
           .timeout(const Duration(seconds: 10));
 
       if (tokenResponse.statusCode != 200) {
@@ -169,28 +193,16 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       final token = tokenData['token'] as String;
 
       final genAI = GoogleGenAI(apiKey: token, apiVersion: 'v1alpha');
-      final systemPrompt = OnboardingPrompts.buildLiveOnboardingSystemPrompt(
-        languageCode: resolvedLangCode,
-        languageName: resolvedLangName,
-      );
 
       _liveSession = await genAI.live
           .connect(
             LiveConnectParameters(
-              model: 'gemini-2.0-flash-realtime-exp',
+              model: 'gemini-3.1-flash-live-preview',
               config: GenerationConfig(responseModalities: [Modality.AUDIO]),
-              systemInstruction: Content(parts: [Part(text: systemPrompt)]),
-              tools: [OnboardingPrompts.completeOnboardingTool],
               callbacks: LiveCallbacks(
                 onOpen: () {
                   debugPrint(
                     'VoiceOnboardingScreen: WebSocket connected ($resolvedLangName / $resolvedLangCode)',
-                  );
-                  if (!mounted) return;
-
-                  _setActivityState(
-                    VoiceActivityState.gettingReady,
-                    statusText: 'Connected. Getting ready...',
                   );
                 },
                 onMessage: (LiveServerMessage message) {
@@ -223,26 +235,10 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       _isConnecting = false;
 
       debugPrint(
-        'VoiceOnboardingScreen: Session ready. Sending initial greeting trigger...',
+        'VoiceOnboardingScreen: Live session ready. Starting microphone stream...',
       );
 
-      _initialResponseWatchdog?.cancel();
-      _initialResponseWatchdog = Timer(const Duration(seconds: 7), () {
-        if (_turnBytesReceived == 0 &&
-            mounted &&
-            !_onboardingCompletedSuccessfully) {
-          debugPrint(
-            'VoiceOnboardingScreen: Watchdog re-sending initial greeting trigger...',
-          );
-          _liveSession?.sendText(
-            'Start the onboarding greeting in $resolvedLangName (language code: $resolvedLangCode) now.',
-          );
-        }
-      });
-
-      _liveSession?.sendText(
-        'Start the onboarding greeting in $resolvedLangName (language code: $resolvedLangCode) now.',
-      );
+      await _startLiveMicStream();
     } catch (e) {
       debugPrint('VoiceOnboardingScreen: Live setup failed: $e');
       _isConnecting = false;
@@ -256,9 +252,6 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
   void _handleLiveMessage(LiveServerMessage message) {
     if (message.data != null) {
-      _initialResponseWatchdog?.cancel();
-      _initialResponseWatchdog = null;
-
       if (_isMicActive) {
         _stopLiveMicStream();
       }
@@ -365,8 +358,8 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       _liveMicSubscription?.cancel();
       _liveMicSubscription = stream.listen(
         (chunk) {
-          if (_liveSession != null && _isMicActive) {
-            _liveSession?.sendAudio(chunk);
+          if (_liveSession != null && _isMicActive && chunk.isNotEmpty) {
+            _liveSession?.sendAudio(Uint8List.fromList(chunk));
           }
         },
         onError: (e) {
@@ -474,9 +467,6 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   }
 
   Future<void> _cleanupLiveResources() async {
-    _initialResponseWatchdog?.cancel();
-    _initialResponseWatchdog = null;
-
     _turnCompletionTimer?.cancel();
     _turnCompletionTimer = null;
 
@@ -493,7 +483,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
   @override
   void dispose() {
-    _initialResponseWatchdog?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _turnCompletionTimer?.cancel();
     _liveMicSubscription?.cancel();
     _liveRecorder.dispose();
