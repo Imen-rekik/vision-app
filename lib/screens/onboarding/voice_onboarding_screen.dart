@@ -235,8 +235,16 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen>
       _isConnecting = false;
 
       debugPrint(
-        'VoiceOnboardingScreen: Live session ready. Starting microphone stream...',
+        'VoiceOnboardingScreen: Live session ready. Triggering greeting...',
       );
+
+      _liveSession!.sendText(
+        '(system trigger: the user just opened the app for the first time '
+        'and is ready to listen. Begin your greeting now, following your '
+        'instructions.)',
+      );
+
+      debugPrint('VoiceOnboardingScreen: Starting microphone stream...');
 
       await _startLiveMicStream();
     } catch (e) {
