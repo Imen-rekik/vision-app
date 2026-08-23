@@ -197,7 +197,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen>
       _liveSession = await genAI.live
           .connect(
             LiveConnectParameters(
-              model: 'gemini-3.1-flash-live-preview',
+              model: 'models/gemini-3.1-flash-live-preview',
               config: GenerationConfig(responseModalities: [Modality.AUDIO]),
               callbacks: LiveCallbacks(
                 onOpen: () {
@@ -238,10 +238,21 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen>
         'VoiceOnboardingScreen: Live session ready. Triggering greeting...',
       );
 
-      _liveSession!.sendText(
-        '(system trigger: the user just opened the app for the first time '
-        'and is ready to listen. Begin your greeting now, following your '
-        'instructions.)',
+      _liveSession!.sendClientContent(
+        turns: [
+          Content(
+            role: 'user',
+            parts: [
+              Part(
+                text:
+                    '(system trigger: the user just opened the app for the first time '
+                    'and is ready to listen. Begin your greeting now, following your '
+                    'instructions.)',
+              ),
+            ],
+          ),
+        ],
+        turnComplete: true,
       );
 
       debugPrint('VoiceOnboardingScreen: Starting microphone stream...');
@@ -367,7 +378,12 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen>
       _liveMicSubscription = stream.listen(
         (chunk) {
           if (_liveSession != null && _isMicActive && chunk.isNotEmpty) {
-            _liveSession?.sendAudio(Uint8List.fromList(chunk));
+            _liveSession?.sendRealtimeInput(
+              audio: Blob(
+                mimeType: 'audio/pcm;rate=16000',
+                data: base64Encode(chunk),
+              ),
+            );
           }
         },
         onError: (e) {
