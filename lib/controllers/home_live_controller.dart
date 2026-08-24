@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:gemini_live/gemini_live.dart';
 import 'package:http/http.dart' as http;
@@ -12,12 +13,15 @@ import 'package:image/image.dart' as img;
 import 'package:record/record.dart';
 
 import '../services/camera_capture_service.dart';
+import '../services/onboarding_service.dart';
+import '../utils/locale_utils.dart';
 import '../widgets/voice_orb/orb_state.dart';
 
 class HomeLiveController {
   static const String _homeLiveTokenUrl =
       'https://vision-ai-relay.vercel.app/api/home-live-token';
 
+  final OnboardingService _onboardingService = OnboardingService();
   static const int _darkThreshold = 60;
   static const int _brightThreshold = 90;
 
@@ -41,6 +45,9 @@ class HomeLiveController {
   bool _isMicActive = false;
   bool _isConnected = false;
   bool _flashOn = false;
+  bool _isSpeaking = false;
+
+  Timer? _checkInTimer;
 
   Function(OrbState)? _onOrbStateChanged;
 
@@ -69,8 +76,29 @@ class HomeLiveController {
         _playerReady = true;
       }
 
+      final preferredLang = await _onboardingService.getPreferredLanguage();
+      final deviceLangCode = WidgetsBinding
+          .instance
+          .platformDispatcher
+          .locale
+          .languageCode
+          .trim()
+          .toLowerCase();
+      final resolvedLangCode =
+          (preferredLang != null && preferredLang.trim().isNotEmpty)
+          ? preferredLang.trim().toLowerCase()
+          : (deviceLangCode.isNotEmpty ? deviceLangCode : 'en');
+      final resolvedLangName = LocaleUtils.getDisplayName(resolvedLangCode);
+
       final tokenResponse = await http
-          .post(Uri.parse(_homeLiveTokenUrl))
+          .post(
+            Uri.parse(_homeLiveTokenUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'languageCode': resolvedLangCode,
+              'languageName': resolvedLangName,
+            }),
+          )
           .timeout(const Duration(seconds: 10));
 
       if (tokenResponse.statusCode != 200) {
@@ -162,6 +190,34 @@ class HomeLiveController {
     _frameTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       _captureAndSendFrame();
     });
+
+    _checkInTimer?.cancel();
+    _checkInTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      _sendObstacleCheckIn();
+    });
+  }
+
+  void _sendObstacleCheckIn() {
+    if (_liveSession == null || !_isConnected || _isSpeaking) return;
+
+    _liveSession?.sendClientContent(
+      turns: [
+        Content(
+          role: 'user',
+          parts: [
+            Part(
+              text:
+                  '(routine check: look at the latest camera frame. If there '
+                  'is a new obstacle or hazard worth flagging that you have '
+                  'not already mentioned, call flag_obstacle and briefly '
+                  'warn me. If nothing has changed or nothing is worth '
+                  'flagging, do not speak at all.)',
+            ),
+          ],
+        ),
+      ],
+      turnComplete: true,
+    );
   }
 
   Future<void> _captureAndSendFrame() async {
@@ -230,6 +286,7 @@ class HomeLiveController {
           }
           _turnBytesReceived += bytes.length;
 
+          _isSpeaking = true;
           _setOrbState(OrbState.speaking);
 
           _audioQueue.add(bytes);
@@ -251,6 +308,7 @@ class HomeLiveController {
       _audioQueue.clear();
       _turnStopwatch.reset();
       _turnBytesReceived = 0;
+      _isSpeaking = false;
       _startMicStream();
     }
 
@@ -271,6 +329,7 @@ class HomeLiveController {
       () async {
         _turnStopwatch.reset();
         _turnBytesReceived = 0;
+        _isSpeaking = false;
         if (_isConnected) {
           await _startMicStream();
         }
@@ -326,6 +385,7 @@ class HomeLiveController {
 
   Future<void> pause() async {
     _frameTimer?.cancel();
+    _checkInTimer?.cancel();
     await _stopMicStream();
   }
 
@@ -338,6 +398,7 @@ class HomeLiveController {
 
   Future<void> dispose() async {
     _frameTimer?.cancel();
+    _checkInTimer?.cancel();
     _turnCompletionTimer?.cancel();
     await _stopMicStream();
     await _liveSession?.close();
