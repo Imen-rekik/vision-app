@@ -46,6 +46,7 @@ class HomeLiveController {
   bool _isConnected = false;
   bool _flashOn = false;
   bool _isSpeaking = false;
+  String? _activeSearchTarget;
 
   Timer? _checkInTimer;
 
@@ -201,27 +202,37 @@ class HomeLiveController {
   void _sendObstacleCheckIn() {
     if (_liveSession == null || !_isConnected || _isSpeaking) return;
 
+    final searchTarget = _activeSearchTarget;
+    final text = searchTarget == null
+        ? '(routine check, not a request for a description: this is '
+              'an automatic background check, not something the user '
+              'asked for. Silence is the correct, expected response '
+              'almost every time. Only call flag_obstacle and speak if '
+              'there is a near-term collision or fall risk - something '
+              'directly in the user\'s path within roughly 1-2 steps, a '
+              'step, curb, drop-off, or fast-approaching person/vehicle '
+              '- that you have not already warned about. Do NOT mention '
+              'distant or off-path objects here; those are for the user '
+              'to ask about. Do NOT describe the scene, do NOT repeat '
+              'something you already flagged, do NOT say "all clear" or '
+              'anything similar. If in doubt, stay silent.)'
+        : '(routine check during an active object search for '
+              '"$searchTarget": this is an automatic background check, '
+              'not something the user asked for right now. First, apply '
+              'the same near-term obstacle rules as always - a collision '
+              'or fall risk always takes priority over search guidance. '
+              'If there is no obstacle to flag, look for "$searchTarget" '
+              'in this frame. If you see it, say where it is relative to '
+              'the user and call stop_object_search. If you don\'t see it, '
+              'you may give one short, varied piece of scanning guidance, '
+              'or stay silent if you have nothing new to add - never '
+              'repeat the same guidance twice in a row.)';
+
     _liveSession?.sendClientContent(
       turns: [
         Content(
           role: 'user',
-          parts: [
-            Part(
-              text:
-                  '(routine check, not a request for a description: this is '
-                  'an automatic background check, not something the user '
-                  'asked for. Silence is the correct, expected response '
-                  'almost every time. Only call flag_obstacle and speak if '
-                  'there is a near-term collision or fall risk - something '
-                  'directly in the user\'s path within roughly 1-2 steps, a '
-                  'step, curb, drop-off, or fast-approaching person/vehicle '
-                  '- that you have not already warned about. Do NOT mention '
-                  'distant or off-path objects here; those are for the user '
-                  'to ask about. Do NOT describe the scene, do NOT repeat '
-                  'something you already flagged, do NOT say "all clear" or '
-                  'anything similar. If in doubt, stay silent.)',
-            ),
-          ],
+          parts: [Part(text: text)],
         ),
       ],
       turnComplete: true,
@@ -363,22 +374,53 @@ class HomeLiveController {
 
   void _handleToolCall(LiveServerToolCall toolCall) {
     for (final call in toolCall.functionCalls ?? const <FunctionCall>[]) {
-      if (call.name != 'flag_obstacle' || call.id == null) continue;
+      if (call.id == null || call.name == null) continue;
 
-      final args = call.args ?? const {};
-      final urgency = (args['urgency'] as String? ?? 'low').toLowerCase();
+      switch (call.name!) {
+        case 'flag_obstacle':
+          final args = call.args ?? const {};
+          final urgency = (args['urgency'] as String? ?? 'low').toLowerCase();
 
-      debugPrint(
-        'HomeLiveController: flag_obstacle received, urgency=$urgency',
-      );
+          debugPrint(
+            'HomeLiveController: flag_obstacle received, urgency=$urgency',
+          );
 
-      _liveSession?.sendFunctionResponse(
-        id: call.id!,
-        name: call.name!,
-        response: {'result': 'success'},
-      );
+          _liveSession?.sendFunctionResponse(
+            id: call.id!,
+            name: call.name!,
+            response: {'result': 'success'},
+          );
 
-      _triggerHaptic(urgency);
+          _triggerHaptic(urgency);
+          break;
+
+        case 'start_object_search':
+          final args = call.args ?? const {};
+          final target = (args['objectDescription'] as String? ?? '').trim();
+
+          debugPrint('HomeLiveController: start_object_search target=$target');
+
+          _activeSearchTarget = target.isEmpty ? 'the object' : target;
+
+          _liveSession?.sendFunctionResponse(
+            id: call.id!,
+            name: call.name!,
+            response: {'result': 'success'},
+          );
+          break;
+
+        case 'stop_object_search':
+          debugPrint('HomeLiveController: stop_object_search');
+
+          _activeSearchTarget = null;
+
+          _liveSession?.sendFunctionResponse(
+            id: call.id!,
+            name: call.name!,
+            response: {'result': 'success'},
+          );
+          break;
+      }
     }
   }
 
@@ -401,6 +443,7 @@ class HomeLiveController {
   Future<void> pause() async {
     _frameTimer?.cancel();
     _checkInTimer?.cancel();
+    _activeSearchTarget = null;
     await _stopMicStream();
   }
 
