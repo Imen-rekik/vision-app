@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../app/theme/app_theme.dart';
+import '../../controllers/startup_controller.dart';
 import '../../core/constants/app_strings.dart';
 import '../../services/onboarding_service.dart';
 import '../../services/permission_service.dart';
@@ -7,6 +8,7 @@ import '../../services/speech_service.dart';
 import '../../services/translation_service.dart';
 import '../../widgets/celestial_background.dart';
 import '../../widgets/glass_card.dart';
+import '../home/home_screen.dart';
 import '../permission_recovery/permission_recovery_screen.dart';
 import 'voice_onboarding_screen.dart';
 
@@ -67,7 +69,11 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
     if (status == PermissionState.granted) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const VoiceOnboardingScreen()),
+        MaterialPageRoute(
+          builder: (_) => StartupController.debugSkipOnboarding
+              ? const HomeScreen()
+              : const VoiceOnboardingScreen(),
+        ),
       );
     } else {
       final notGranted = await _translationService.translate(
@@ -115,11 +121,6 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
-                    // ExcludeSemantics: title/description are a visual echo
-                    // of what SpeechService already speaks aloud
-                    // (permissionsExplanation etc.). Keeping them focusable
-                    // would make TalkBack/VoiceOver announce the same thing
-                    // twice.
                     ExcludeSemantics(
                       child: Text(
                         _titleText,

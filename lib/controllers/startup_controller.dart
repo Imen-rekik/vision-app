@@ -9,6 +9,8 @@ enum StartupDestination {
 }
 
 class StartupController {
+  static const bool debugSkipOnboarding = true;
+
   final OnboardingService _onboardingService;
   final PermissionService _permissionService;
 
@@ -21,10 +23,6 @@ class StartupController {
   Future<StartupDestination> determineDestination() async {
     final permissionState = await _permissionService.checkRequired();
 
-    // Permanently denied means the OS will no longer show the system
-    // permission dialog — sending the user back through PermissionsScreen
-    // (which just calls requestMissing()) would silently do nothing. They
-    // need the "open Settings" flow instead, regardless of onboarding state.
     if (permissionState == PermissionState.permanentlyDenied) {
       return StartupDestination.permissionRecovery;
     }
@@ -33,9 +31,10 @@ class StartupController {
       return StartupDestination.permissions;
     }
 
-    // Permission is granted from here on. `isInteractiveOnboardingCompleted`
-    // is the flag actually written by VoiceOnboardingScreen/HowToUseScreen;
-    // `isCompleted` is legacy and unused elsewhere in the app.
+    if (debugSkipOnboarding) {
+      return StartupDestination.home;
+    }
+
     final hasOnboarded = await _onboardingService
         .isInteractiveOnboardingCompleted();
     if (!hasOnboarded) {

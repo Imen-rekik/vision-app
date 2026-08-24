@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import '../../app/theme/app_theme.dart';
-import '../../controllers/conversation_controller.dart';
+import '../../controllers/home_live_controller.dart';
 import '../../core/constants/app_strings.dart';
 import '../../services/onboarding_service.dart';
-import '../../services/camera_capture_service.dart';
 import '../../services/permission_service.dart';
 import '../../services/speech_service.dart';
 import '../../services/translation_service.dart';
@@ -29,10 +28,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   late final SpeechService _speechService;
   late final PermissionService _permissionService;
-  late final ConversationController _conversationController;
+  late final HomeLiveController _homeLiveController;
   late final TranslationService _translationService;
   late final OnboardingService _onboardingService;
-  final CameraCaptureService _cameraCaptureService = CameraCaptureService();
 
   @override
   void initState() {
@@ -44,25 +42,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _translationService = TranslationService();
     _onboardingService = OnboardingService();
 
-    _conversationController = ConversationController(
-      speechService: _speechService,
-    );
+    _homeLiveController = HomeLiveController();
 
-    _conversationController.setOnOrbStateChanged((OrbState state) {
+    _homeLiveController.setOnOrbStateChanged((OrbState state) {
       if (mounted) {
         setState(() {
           _orbState = state;
         });
       }
     });
-
-    // The controller asks for a frame only at the moment it actually needs
-    // one (right when a user query is ready to send) — this closure just
-    // hands it whatever CameraController currently holds, without the
-    // controller needing to know CameraController exists.
-    _conversationController.setCaptureFrameProvider(
-      () => _cameraCaptureService.captureFrame(_cameraController),
-    );
 
     _loadTranslations();
     _verifyPermissionsAndInitialize();
@@ -96,7 +84,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     await _initializeCamera();
-    _conversationController.start();
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      await _homeLiveController.start(_cameraController!);
+    }
   }
 
   Future<void> _initializeCamera() async {
@@ -165,7 +155,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _navigateToPermissionRecovery() {
-    _conversationController.handleAppBackground();
+    _homeLiveController.pause();
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const PermissionRecoveryScreen()),
@@ -178,7 +168,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
-      _conversationController.handleAppBackground();
+      _homeLiveController.pause();
     } else if (state == AppLifecycleState.resumed) {
       _checkPermissionsOnResume();
     }
@@ -197,14 +187,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await _initializeCamera();
     }
 
-    _conversationController.handleAppForeground();
+    await _homeLiveController.resume();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _cameraController?.dispose();
-    _conversationController.dispose();
+    _homeLiveController.dispose();
     super.dispose();
   }
 
@@ -215,7 +205,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Background Layer: Camera Preview or Error/Loading
             if (_cameraController != null &&
                 _cameraController!.value.isInitialized)
               ExcludeSemantics(
@@ -291,10 +280,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
 
-            // Semi-Transparent Dark Glass Overlay for visual contrast
             Container(color: AppColors.deepMidnight.withValues(alpha: 0.45)),
 
-            // Central VoiceOrb Component
             Center(child: VoiceOrb(state: _orbState)),
           ],
         ),
