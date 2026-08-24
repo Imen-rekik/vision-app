@@ -4,13 +4,13 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:gemini_live/gemini_live.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'package:record/record.dart';
+import 'package:vibration/vibration.dart';
 
 import '../services/camera_capture_service.dart';
 import '../services/onboarding_service.dart';
@@ -187,14 +187,15 @@ class HomeLiveController {
 
   void _startFrameLoop() {
     _frameTimer?.cancel();
-    _frameTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      _captureAndSendFrame();
-    });
-
     _checkInTimer?.cancel();
-    _checkInTimer = Timer.periodic(const Duration(seconds: 4), (_) {
-      _sendObstacleCheckIn();
+    _frameTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      _captureSendFrameAndCheckIn();
     });
+  }
+
+  Future<void> _captureSendFrameAndCheckIn() async {
+    await _captureAndSendFrame();
+    _sendObstacleCheckIn();
   }
 
   void _sendObstacleCheckIn() {
@@ -207,11 +208,18 @@ class HomeLiveController {
           parts: [
             Part(
               text:
-                  '(routine check: look at the latest camera frame. If there '
-                  'is a new obstacle or hazard worth flagging that you have '
-                  'not already mentioned, call flag_obstacle and briefly '
-                  'warn me. If nothing has changed or nothing is worth '
-                  'flagging, do not speak at all.)',
+                  '(routine check, not a request for a description: this is '
+                  'an automatic background check, not something the user '
+                  'asked for. Silence is the correct, expected response '
+                  'almost every time. Only call flag_obstacle and speak if '
+                  'there is a near-term collision or fall risk - something '
+                  'directly in the user\'s path within roughly 1-2 steps, a '
+                  'step, curb, drop-off, or fast-approaching person/vehicle '
+                  '- that you have not already warned about. Do NOT mention '
+                  'distant or off-path objects here; those are for the user '
+                  'to ask about. Do NOT describe the scene, do NOT repeat '
+                  'something you already flagged, do NOT say "all clear" or '
+                  'anything similar. If in doubt, stay silent.)',
             ),
           ],
         ),
@@ -360,6 +368,10 @@ class HomeLiveController {
       final args = call.args ?? const {};
       final urgency = (args['urgency'] as String? ?? 'low').toLowerCase();
 
+      debugPrint(
+        'HomeLiveController: flag_obstacle received, urgency=$urgency',
+      );
+
       _liveSession?.sendFunctionResponse(
         id: call.id!,
         name: call.name!,
@@ -370,16 +382,19 @@ class HomeLiveController {
     }
   }
 
-  void _triggerHaptic(String urgency) {
+  Future<void> _triggerHaptic(String urgency) async {
+    final hasVibrator = await Vibration.hasVibrator();
+    if (hasVibrator != true) return;
+
     switch (urgency) {
       case 'high':
-        HapticFeedback.heavyImpact();
+        Vibration.vibrate(duration: 400);
         break;
       case 'medium':
-        HapticFeedback.mediumImpact();
+        Vibration.vibrate(duration: 250);
         break;
       default:
-        HapticFeedback.lightImpact();
+        Vibration.vibrate(duration: 120);
     }
   }
 
