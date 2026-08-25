@@ -117,11 +117,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       _cameraController = CameraController(
         backCamera,
-        ResolutionPreset.medium,
+        ResolutionPreset.low,
         enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.jpeg,
       );
 
-      await _cameraController!.initialize();
+      await _cameraController!.initialize().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw CameraException(
+            'initTimeout',
+            'Camera initialization did not respond in time.',
+          );
+        },
+      );
       if (mounted) setState(() {});
     } on CameraException catch (e) {
       debugPrint("CameraException [${e.code}]: ${e.description}");
@@ -135,9 +144,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final errorMsg = await _translationService.translate(
           AppStrings.cameraUnavailable,
         );
+        final rawDetail = e.description ?? e.code;
+        final shortDetail = rawDetail.length > 140
+            ? '${rawDetail.substring(0, 140)}...'
+            : rawDetail;
         if (mounted) {
           setState(() {
-            _cameraError = "$errorMsg (${e.description ?? e.code})";
+            _cameraError = "$errorMsg ($shortDetail)";
           });
         }
       }
@@ -217,56 +230,58 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24.0),
-                  child: GlassCard(
-                    padding: const EdgeInsets.all(28),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.videocam_off_rounded,
-                          size: 56,
-                          color: AppColors.warningOrange,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          _cameraError!,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(
-                            context,
-                          ).textTheme.bodyLarge?.copyWith(height: 1.4),
-                        ),
-                        const SizedBox(height: 20),
-                        GlassCard(
-                          onTap: _initializeCamera,
-                          semanticsLabel: _retryButtonText,
-                          borderColor: AppColors.electricCyan,
-                          fillColor: AppColors.electricCyan.withValues(
-                            alpha: 0.2,
+                  child: SingleChildScrollView(
+                    child: GlassCard(
+                      padding: const EdgeInsets.all(28),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.videocam_off_rounded,
+                            size: 56,
+                            color: AppColors.warningOrange,
                           ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 14,
+                          const SizedBox(height: 16),
+                          Text(
+                            _cameraError!,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(
+                              context,
+                            ).textTheme.bodyLarge?.copyWith(height: 1.4),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.refresh_rounded,
-                                color: AppColors.electricCyan,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                _retryButtonText,
-                                style: Theme.of(context).textTheme.bodyLarge
-                                    ?.copyWith(
-                                      color: AppColors.electricCyan,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                              ),
-                            ],
+                          const SizedBox(height: 20),
+                          GlassCard(
+                            onTap: _initializeCamera,
+                            semanticsLabel: _retryButtonText,
+                            borderColor: AppColors.electricCyan,
+                            fillColor: AppColors.electricCyan.withValues(
+                              alpha: 0.2,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 14,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.refresh_rounded,
+                                  color: AppColors.electricCyan,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _retryButtonText,
+                                  style: Theme.of(context).textTheme.bodyLarge
+                                      ?.copyWith(
+                                        color: AppColors.electricCyan,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),

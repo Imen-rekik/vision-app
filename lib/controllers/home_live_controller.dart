@@ -144,6 +144,7 @@ class HomeLiveController {
   }
 
   Future<void> _startMicStream() async {
+    if (_isMicActive) return;
     try {
       final hasPermission = await _micRecorder.hasPermission();
       if (!hasPermission) return;
@@ -161,7 +162,10 @@ class HomeLiveController {
 
       _micSubscription?.cancel();
       _micSubscription = stream.listen((chunk) {
-        if (_liveSession != null && _isMicActive && chunk.isNotEmpty) {
+        if (_liveSession != null &&
+            _isConnected &&
+            !_isSpeaking &&
+            chunk.isNotEmpty) {
           _liveSession?.sendRealtimeInput(
             audio: Blob(
               mimeType: 'audio/pcm;rate=16000',
@@ -183,7 +187,9 @@ class HomeLiveController {
       if (await _micRecorder.isRecording()) {
         await _micRecorder.stop();
       }
-    } catch (e) {}
+    } catch (e) {
+      debugPrint('HomeLiveController: mic stop error (ignored): $e');
+    }
   }
 
   void _startFrameLoop() {
@@ -204,29 +210,19 @@ class HomeLiveController {
 
     final searchTarget = _activeSearchTarget;
     final text = searchTarget == null
-        ? '(routine check, not a request for a description: this is '
-              'an automatic background check, not something the user '
-              'asked for. Silence is the correct, expected response '
-              'almost every time. Only call flag_obstacle and speak if '
-              'there is a near-term collision or fall risk - something '
-              'directly in the user\'s path within roughly 1-2 steps, a '
-              'step, curb, drop-off, or fast-approaching person/vehicle '
-              '- that you have not already warned about. Do NOT mention '
-              'distant or off-path objects here; those are for the user '
-              'to ask about. Do NOT describe the scene, do NOT repeat '
-              'something you already flagged, do NOT say "all clear" or '
-              'anything similar. If in doubt, stay silent.)'
-        : '(routine check during an active object search for '
-              '"$searchTarget": this is an automatic background check, '
-              'not something the user asked for right now. First, apply '
-              'the same near-term obstacle rules as always - a collision '
-              'or fall risk always takes priority over search guidance. '
-              'If there is no obstacle to flag, look for "$searchTarget" '
-              'in this frame. If you see it, say where it is relative to '
-              'the user and call stop_object_search. If you don\'t see it, '
-              'you may give one short, varied piece of scanning guidance, '
-              'or stay silent if you have nothing new to add - never '
-              'repeat the same guidance twice in a row.)';
+        ? '(PRIORITY SAFETY CHECK: Analyze this camera frame immediately. '
+              'Safety is your top priority. If there is ANY near-term collision or fall risk '
+              'directly in the user\'s path within 1-2 steps — such as a wall, door, furniture, step, curb, drop-off, '
+              'or moving person/vehicle — you MUST call flag_obstacle and warn the user out loud immediately! '
+              'If the user is approaching or getting closer to an obstacle (e.g. walking toward a wall), '
+              'warn them immediately even if mentioned earlier. '
+              'Do NOT mention distant or off-path objects. Do NOT describe the general scene or say "all clear". '
+              'If there is no obstacle in path, stay silent.)'
+        : '(PRIORITY SAFETY CHECK during active search for "$searchTarget": '
+              'Analyze this frame. First, apply top-priority obstacle rules — if there is ANY near-term collision '
+              'or fall risk (wall, step, curb, drop-off), call flag_obstacle and warn immediately! '
+              'If no obstacle is in path, look for "$searchTarget". If seen, tell the user its location '
+              'and call stop_object_search. If not seen, you may give short scanning guidance or stay silent.)';
 
     _liveSession?.sendClientContent(
       turns: [
@@ -288,15 +284,13 @@ class HomeLiveController {
         on ? FlashMode.torch : FlashMode.off,
       );
       _flashOn = on;
-    } catch (e) {}
+    } catch (e) {
+      debugPrint('HomeLiveController: flash mode error (ignored): $e');
+    }
   }
 
   void _handleLiveMessage(LiveServerMessage message) {
     if (message.data != null) {
-      if (_isMicActive) {
-        _stopMicStream();
-      }
-
       try {
         final bytes = base64Decode(message.data!);
         if (bytes.isNotEmpty) {
@@ -314,7 +308,9 @@ class HomeLiveController {
           _turnCompletionTimer?.cancel();
           _turnCompletionTimer = null;
         }
-      } catch (e) {}
+      } catch (e) {
+        debugPrint('HomeLiveController: audio decode error (ignored): $e');
+      }
     }
 
     if (message.serverContent?.turnComplete == true) {
@@ -328,7 +324,7 @@ class HomeLiveController {
       _turnStopwatch.reset();
       _turnBytesReceived = 0;
       _isSpeaking = false;
-      _startMicStream();
+      _setOrbState(OrbState.listening);
     }
 
     if (message.toolCall != null) {
@@ -350,7 +346,7 @@ class HomeLiveController {
         _turnBytesReceived = 0;
         _isSpeaking = false;
         if (_isConnected) {
-          await _startMicStream();
+          _setOrbState(OrbState.listening);
         }
       },
     );
@@ -365,7 +361,9 @@ class HomeLiveController {
         if (chunk.isEmpty) continue;
         try {
           await _player.feedUint8FromStream(chunk);
-        } catch (e) {}
+        } catch (e) {
+          debugPrint('HomeLiveController: audio feed error (ignored): $e');
+        }
       }
     } finally {
       _isFeedingAudio = false;
@@ -465,7 +463,9 @@ class HomeLiveController {
     if (_playerReady) {
       try {
         await _player.stopPlayer();
-      } catch (e) {}
+      } catch (e) {
+        debugPrint('HomeLiveController: player stop error (ignored): $e');
+      }
       await _player.closePlayer();
     }
 
@@ -474,7 +474,9 @@ class HomeLiveController {
     if (_flashOn && _cameraController != null) {
       try {
         await _cameraController!.setFlashMode(FlashMode.off);
-      } catch (e) {}
+      } catch (e) {
+        debugPrint('HomeLiveController: flash off error (ignored): $e');
+      }
     }
   }
 }
