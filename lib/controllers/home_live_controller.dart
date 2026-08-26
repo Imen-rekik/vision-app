@@ -210,19 +210,34 @@ class HomeLiveController {
 
     final searchTarget = _activeSearchTarget;
     final text = searchTarget == null
-        ? '(PRIORITY SAFETY CHECK: Analyze this camera frame immediately. '
-              'Safety is your top priority. If there is ANY near-term collision or fall risk '
-              'directly in the user\'s path within 1-2 steps — such as a wall, door, furniture, step, curb, drop-off, '
-              'or moving person/vehicle — you MUST call flag_obstacle and warn the user out loud immediately! '
-              'If the user is approaching or getting closer to an obstacle (e.g. walking toward a wall), '
-              'warn them immediately even if mentioned earlier. '
-              'Do NOT mention distant or off-path objects. Do NOT describe the general scene or say "all clear". '
-              'If there is no obstacle in path, stay silent.)'
-        : '(PRIORITY SAFETY CHECK during active search for "$searchTarget": '
-              'Analyze this frame. First, apply top-priority obstacle rules — if there is ANY near-term collision '
-              'or fall risk (wall, step, curb, drop-off), call flag_obstacle and warn immediately! '
-              'If no obstacle is in path, look for "$searchTarget". If seen, tell the user its location '
-              'and call stop_object_search. If not seen, you may give short scanning guidance or stay silent.)';
+        ? '(SAFETY CHECK: Analyze this camera frame. Only flag something '
+              'genuinely close enough to hit or trip over within the next '
+              '1-2 normal walking steps - as a rough guide, it should fill '
+              'a large, close-up portion of the frame, not appear as a '
+              'small or distant shape. A wall, door, or piece of furniture '
+              'that is still several steps away is NOT near-term yet - do '
+              'not flag it. If there truly is a near-term collision or '
+              'fall risk (something about to be reached: a wall, door, '
+              'furniture, step, curb, drop-off, or fast-approaching '
+              'person/vehicle), call flag_obstacle and warn the user. If '
+              'you already warned about this same obstacle last time and '
+              'nothing meaningful has changed since then, stay silent - do '
+              'not repeat the same warning every check. Only warn again '
+              'about something already mentioned if it has clearly gotten '
+              'more urgent (noticeably closer than before) or a different '
+              'hazard has appeared. Do NOT mention distant or off-path '
+              'objects. Do NOT describe the general scene or say "all '
+              'clear". If there is no near-term obstacle, stay silent.)'
+        : '(SAFETY CHECK during active search for "$searchTarget": Analyze '
+              'this frame. First, apply the same near-term obstacle rules '
+              'as always - only flag something genuinely close enough to '
+              'hit or trip over within 1-2 steps, filling a large portion '
+              'of the frame, not a distant background shape - and only '
+              're-warn about something already mentioned if it has clearly '
+              'gotten more urgent. If no obstacle is in path, look for '
+              '"$searchTarget". If seen, tell the user its location and '
+              'call stop_object_search. If not seen, you may give short '
+              'scanning guidance or stay silent.)';
 
     _liveSession?.sendClientContent(
       turns: [
