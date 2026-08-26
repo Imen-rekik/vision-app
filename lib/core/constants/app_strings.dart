@@ -94,6 +94,8 @@ class AppStrings {
       "Camera unavailable. Voice features remain active.";
   static const String noCameraHardware =
       "No camera hardware detected on this device.";
+  static const String settingThingsUp =
+      "Setting things up for you. This will just take a moment.";
   static const String retryCamera = "Retry Camera";
 
   static const String liveConnectionProblem =

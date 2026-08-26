@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import '../../app/theme/app_theme.dart';
@@ -63,6 +64,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
+  Future<void> _waitForWindowReady() async {
+    final completer = Completer<void>();
+    WidgetsBinding.instance.addPostFrameCallback((_) => completer.complete());
+    await completer.future;
+    await Future.delayed(const Duration(milliseconds: 300));
+  }
+
   Future<void> _verifyPermissionsAndInitialize() async {
     final state = await _permissionService.checkRequired();
     if (!mounted) return;
@@ -83,13 +91,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await _translationService.init(preferredLang);
     }
 
+    final settingUpMsg = await _translationService.translate(
+      AppStrings.settingThingsUp,
+    );
+    unawaited(_speechService.speak(settingUpMsg));
+
+    await _waitForWindowReady();
     await _initializeCamera();
     if (_cameraController != null && _cameraController!.value.isInitialized) {
       await _homeLiveController.start(_cameraController!);
     }
   }
 
-  Future<void> _initializeCamera() async {
+  Future<void> _initializeCamera({bool isRetry = false}) async {
     try {
       if (mounted) {
         setState(() {
@@ -117,7 +131,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       _cameraController = CameraController(
         backCamera,
-        ResolutionPreset.low,
+        ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
@@ -140,22 +154,44 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           e.code == 'cameraPermission' ||
           e.code == 'CameraAccessRestricted') {
         _navigateToPermissionRecovery();
-      } else {
-        final errorMsg = await _translationService.translate(
-          AppStrings.cameraUnavailable,
-        );
-        final rawDetail = e.description ?? e.code;
-        final shortDetail = rawDetail.length > 140
-            ? '${rawDetail.substring(0, 140)}...'
-            : rawDetail;
+        return;
+      }
+
+      if (!isRetry) {
+        await _cameraController?.dispose();
+        _cameraController = null;
+        await Future.delayed(const Duration(milliseconds: 500));
         if (mounted) {
-          setState(() {
-            _cameraError = "$errorMsg ($shortDetail)";
-          });
+          await _initializeCamera(isRetry: true);
         }
+        return;
+      }
+
+      final errorMsg = await _translationService.translate(
+        AppStrings.cameraUnavailable,
+      );
+      final rawDetail = e.description ?? e.code;
+      final shortDetail = rawDetail.length > 140
+          ? '${rawDetail.substring(0, 140)}...'
+          : rawDetail;
+      if (mounted) {
+        setState(() {
+          _cameraError = "$errorMsg ($shortDetail)";
+        });
       }
     } catch (e) {
       debugPrint("Generic camera initialization error: $e");
+
+      if (!isRetry) {
+        await _cameraController?.dispose();
+        _cameraController = null;
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) {
+          await _initializeCamera(isRetry: true);
+        }
+        return;
+      }
+
       final errorMsg = await _translationService.translate(
         AppStrings.cameraUnavailable,
       );
@@ -197,6 +233,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      await _waitForWindowReady();
       await _initializeCamera();
     }
 
@@ -220,12 +257,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           children: [
             if (_cameraController != null &&
                 _cameraController!.value.isInitialized)
-              ExcludeSemantics(
-                child: Opacity(
-                  opacity: 0.65,
-                  child: CameraPreview(_cameraController!),
-                ),
-              )
+              ExcludeSemantics(child: CameraPreview(_cameraController!))
             else if (_cameraError != null)
               Center(
                 child: Padding(
@@ -295,9 +327,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
 
-            Container(color: AppColors.deepMidnight.withValues(alpha: 0.45)),
-
-            Center(child: VoiceOrb(state: _orbState)),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 48),
+                child: VoiceOrb(state: _orbState, size: 100.0),
+              ),
+            ),
           ],
         ),
       ),
