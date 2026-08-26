@@ -234,10 +234,14 @@ class HomeLiveController {
               'hit or trip over within 1-2 steps, filling a large portion '
               'of the frame, not a distant background shape - and only '
               're-warn about something already mentioned if it has clearly '
-              'gotten more urgent. If no obstacle is in path, look for '
-              '"$searchTarget". If seen, tell the user its location and '
-              'call stop_object_search. If not seen, you may give short '
-              'scanning guidance or stay silent.)';
+              'gotten more urgent. If no obstacle is in path: if '
+              '"$searchTarget" is not yet visible, you may give short '
+              'scanning guidance or stay silent. If it is visible but not '
+              'yet reached, tell the user its location/direction and keep '
+              'guiding them closer - do NOT call stop_object_search yet. '
+              'Only call stop_object_search once the object is essentially '
+              'within reach and you clearly confirm this to the user, or '
+              'if the user asked to stop.)';
 
     _liveSession?.sendClientContent(
       turns: [
