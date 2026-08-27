@@ -22,8 +22,9 @@ class HomeLiveController {
       'https://vision-ai-relay.vercel.app/api/home-live-token';
 
   final OnboardingService _onboardingService = OnboardingService();
-  static const int _darkThreshold = 60;
-  static const int _brightThreshold = 90;
+  static const int _darkThreshold = 30;
+  static const int _brightThreshold = 70;
+  static const Duration _flashToggleCooldown = Duration(seconds: 6);
 
   final CameraCaptureService _cameraCaptureService = CameraCaptureService();
   final AudioRecorder _micRecorder = AudioRecorder();
@@ -45,6 +46,7 @@ class HomeLiveController {
   bool _isMicActive = false;
   bool _isConnected = false;
   bool _flashOn = false;
+  DateTime? _lastFlashToggleTime;
   bool _isSpeaking = false;
   String? _activeSearchTarget;
 
@@ -65,17 +67,7 @@ class HomeLiveController {
     _setOrbState(OrbState.thinking);
 
     try {
-      if (!_playerReady) {
-        await _player.openPlayer();
-        await _player.startPlayerFromStream(
-          codec: Codec.pcm16,
-          numChannels: 1,
-          sampleRate: 24000,
-          bufferSize: 8192,
-          interleaved: true,
-        );
-        _playerReady = true;
-      }
+      await _ensurePlayerReady();
 
       final preferredLang = await _onboardingService.getPreferredLanguage();
       final deviceLangCode = WidgetsBinding
@@ -143,11 +135,43 @@ class HomeLiveController {
     }
   }
 
-  Future<void> _startMicStream() async {
+  Future<void> _ensurePlayerReady({bool isRetry = false}) async {
+    if (_playerReady) return;
+    try {
+      await _player.openPlayer().timeout(const Duration(seconds: 5));
+      await _player
+          .startPlayerFromStream(
+            codec: Codec.pcm16,
+            numChannels: 1,
+            sampleRate: 24000,
+            bufferSize: 8192,
+            interleaved: true,
+          )
+          .timeout(const Duration(seconds: 5));
+      _playerReady = true;
+    } catch (e) {
+      if (!isRetry) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        await _ensurePlayerReady(isRetry: true);
+        return;
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _startMicStream({bool isRetry = false}) async {
     if (_isMicActive) return;
     try {
       final hasPermission = await _micRecorder.hasPermission();
-      if (!hasPermission) return;
+      if (!hasPermission) {
+        if (!isRetry) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          await _startMicStream(isRetry: true);
+          return;
+        }
+        _setOrbState(OrbState.error);
+        return;
+      }
 
       final stream = await _micRecorder.startStream(
         const RecordConfig(
@@ -175,6 +199,11 @@ class HomeLiveController {
         }
       });
     } catch (e) {
+      if (!isRetry) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        await _startMicStream(isRetry: true);
+        return;
+      }
       _setOrbState(OrbState.error);
     }
   }
@@ -263,12 +292,16 @@ class HomeLiveController {
     if (frame == null) return;
 
     final brightness = _averageBrightness(frame);
+    final canToggleFlash =
+        _lastFlashToggleTime == null ||
+        DateTime.now().difference(_lastFlashToggleTime!) >=
+            _flashToggleCooldown;
 
-    if (brightness < _darkThreshold && !_flashOn) {
+    if (brightness < _darkThreshold && !_flashOn && canToggleFlash) {
       await _setFlash(true);
       final relit = await _cameraCaptureService.captureFrame(_cameraController);
       if (relit != null) frame = relit;
-    } else if (brightness > _brightThreshold && _flashOn) {
+    } else if (brightness > _brightThreshold && _flashOn && canToggleFlash) {
       await _setFlash(false);
     }
 
@@ -303,6 +336,7 @@ class HomeLiveController {
         on ? FlashMode.torch : FlashMode.off,
       );
       _flashOn = on;
+      _lastFlashToggleTime = DateTime.now();
     } catch (e) {
       debugPrint('HomeLiveController: flash mode error (ignored): $e');
     }

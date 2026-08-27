@@ -103,7 +103,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _initializeCamera({bool isRetry = false}) async {
+  Future<void> _initializeCamera({int attempt = 0}) async {
+    const maxAttempts = 3;
     try {
       if (mounted) {
         setState(() {
@@ -157,12 +158,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         return;
       }
 
-      if (!isRetry) {
+      if (attempt < maxAttempts - 1) {
         await _cameraController?.dispose();
         _cameraController = null;
         await Future.delayed(const Duration(milliseconds: 500));
         if (mounted) {
-          await _initializeCamera(isRetry: true);
+          await _initializeCamera(attempt: attempt + 1);
         }
         return;
       }
@@ -182,12 +183,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (e) {
       debugPrint("Generic camera initialization error: $e");
 
-      if (!isRetry) {
+      if (attempt < maxAttempts - 1) {
         await _cameraController?.dispose();
         _cameraController = null;
         await Future.delayed(const Duration(milliseconds: 500));
         if (mounted) {
-          await _initializeCamera(isRetry: true);
+          await _initializeCamera(attempt: attempt + 1);
         }
         return;
       }
