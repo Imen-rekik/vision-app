@@ -14,6 +14,7 @@ import 'package:vibration/vibration.dart';
 
 import '../services/camera_capture_service.dart';
 import '../services/onboarding_service.dart';
+import '../services/speech_service.dart';
 import '../utils/locale_utils.dart';
 import '../widgets/voice_orb/orb_state.dart';
 
@@ -22,6 +23,7 @@ class HomeLiveController {
       'https://vision-ai-relay.vercel.app/api/home-live-token';
 
   final OnboardingService _onboardingService = OnboardingService();
+  final SpeechService _speechService = SpeechService();
   static const int _darkThreshold = 30;
   static const int _brightThreshold = 70;
   static const Duration _flashToggleCooldown = Duration(seconds: 6);
@@ -96,6 +98,11 @@ class HomeLiveController {
 
       if (tokenResponse.statusCode != 200) {
         _setOrbState(OrbState.error);
+        unawaited(
+          _speechService.speak(
+            "I couldn't connect. Please check your connection and try again.",
+          ),
+        );
         return;
       }
 

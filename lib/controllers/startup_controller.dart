@@ -9,7 +9,7 @@ enum StartupDestination {
 }
 
 class StartupController {
-  static const bool debugSkipOnboarding = true;
+  static const bool debugSkipOnboarding = false;
 
   final OnboardingService _onboardingService;
   final PermissionService _permissionService;
