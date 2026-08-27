@@ -71,7 +71,14 @@ class HomeLiveController {
     try {
       await _ensurePlayerReady();
 
-      final preferredLang = await _onboardingService.getPreferredLanguage();
+      String? preferredLang;
+      try {
+        preferredLang = await _onboardingService.getPreferredLanguage().timeout(
+          const Duration(seconds: 3),
+        );
+      } catch (e) {
+        preferredLang = null;
+      }
       final deviceLangCode = WidgetsBinding
           .instance
           .platformDispatcher
