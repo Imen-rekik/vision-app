@@ -16,14 +16,18 @@ class NetworkService {
 
   bool _initialized = false;
   bool? _previousOnlineState;
-  Function()? _onReconnectedCallback;
+  final List<Function()> _onReconnectedCallbacks = [];
   Future<String> Function(String)? _translateCallback;
 
   ValueNotifier<bool> get isOnlineNotifier => _isOnlineNotifier;
   bool get isOnline => _isOnlineNotifier.value;
 
-  void setOnReconnectedCallback(Function() callback) {
-    _onReconnectedCallback = callback;
+  void addOnReconnectedCallback(Function() callback) {
+    _onReconnectedCallbacks.add(callback);
+  }
+
+  void removeOnReconnectedCallback(Function() callback) {
+    _onReconnectedCallbacks.remove(callback);
   }
 
   void setTranslateCallback(Future<String> Function(String) callback) {
@@ -95,9 +99,9 @@ class NetworkService {
         final message = _translateCallback != null
             ? await _translateCallback!(AppStrings.internetRestored)
             : AppStrings.internetRestored;
-        unawaited(SpeechService().speak(message));
-        if (_onReconnectedCallback != null) {
-          _onReconnectedCallback!();
+        await SpeechService().speak(message);
+        for (final callback in List<Function()>.from(_onReconnectedCallbacks)) {
+          callback();
         }
       }
     }

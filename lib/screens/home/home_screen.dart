@@ -4,10 +4,13 @@ import 'package:camera/camera.dart';
 import '../../app/theme/app_theme.dart';
 import '../../controllers/home_live_controller.dart';
 import '../../core/constants/app_strings.dart';
+import '../../services/ai_localization_service.dart';
+import '../../services/network_service.dart';
 import '../../services/onboarding_service.dart';
 import '../../services/permission_service.dart';
 import '../../services/speech_service.dart';
 import '../../services/translation_service.dart';
+import '../../utils/locale_utils.dart';
 import '../../widgets/celestial_background.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/voice_orb/orb_state.dart';
@@ -31,7 +34,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late final PermissionService _permissionService;
   late final HomeLiveController _homeLiveController;
   late final TranslationService _translationService;
+  late final AiLocalizationService _aiLocalizationService;
   late final OnboardingService _onboardingService;
+  late final NetworkService _networkService;
+  late final Function() _onNetworkReconnected;
 
   @override
   void initState() {
@@ -41,7 +47,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _speechService = SpeechService();
     _permissionService = PermissionService();
     _translationService = TranslationService();
+    _aiLocalizationService = AiLocalizationService();
     _onboardingService = OnboardingService();
+    _networkService = NetworkService();
 
     _homeLiveController = HomeLiveController();
 
@@ -52,6 +60,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         });
       }
     });
+
+    _onNetworkReconnected = () {
+      unawaited(_handleNetworkReconnected());
+    };
+    _networkService.addOnReconnectedCallback(_onNetworkReconnected);
 
     _loadTranslations();
     _verifyPermissionsAndInitialize();
@@ -91,13 +104,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await _translationService.init(preferredLang);
     }
 
-    final settingUpMsg = await _translationService.translate(
-      AppStrings.settingThingsUp,
-    );
-    unawaited(_speechService.speak(settingUpMsg));
+    final languageName = LocaleUtils.getDisplayName(activeLang);
+    await _aiLocalizationService.init(activeLang, languageName);
+    unawaited(_aiLocalizationService.speakLocalized('settingThingsUp'));
 
     await _waitForWindowReady();
     await _initializeCamera();
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      await _homeLiveController.start(_cameraController!);
+    }
+  }
+
+  Future<void> _handleNetworkReconnected() async {
+    if (!mounted) return;
+    if (_homeLiveController.isConnected) return;
+
+    unawaited(_aiLocalizationService.speakLocalized('settingThingsUp'));
+
+    await _cameraController?.dispose();
+    _cameraController = null;
+    if (mounted) {
+      setState(() {
+        _cameraError = null;
+      });
+    }
+
+    await _waitForWindowReady();
+    await _initializeCamera();
+
+    if (!mounted) return;
     if (_cameraController != null && _cameraController!.value.isInitialized) {
       await _homeLiveController.start(_cameraController!);
     }
@@ -244,6 +279,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _networkService.removeOnReconnectedCallback(_onNetworkReconnected);
     _cameraController?.dispose();
     _homeLiveController.dispose();
     super.dispose();

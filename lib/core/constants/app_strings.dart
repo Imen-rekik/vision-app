@@ -33,10 +33,6 @@ class AppStrings {
   static const String openSettings = "Open Settings";
   static const String iHaveGrantedThem = "I have granted them";
 
-  // Fixed trigger phrases recognized by WakeWordService - must stay in English regardless of app language, or the wake-word engine won't recognize what the user is told to say.
-  static const String wakeWordPhrase = "Hey Vision";
-  static const String stopWordPhrase = "Stop Vision";
-
   // Voice Onboarding (Interactive AI Setup)
   static const String voiceOnboardingGreeting =
       "Hello, I am Vision. I help you understand the world around you. "
@@ -68,18 +64,6 @@ class AppStrings {
   static const String voiceOnboardingStatusListeningName =
       "Listening for your name";
   static const String voiceOnboardingScreenTitle = "AI Setup";
-
-  // How to Use Walkthrough
-  static const String howToUseWalkthroughPart1 =
-      "You are now ready to use Vision. I'm your AI assistant, designed to help you understand and interact with the world around you. To talk to me, simply say: ";
-  static const String howToUseWalkthroughPart2 =
-      ". You can ask questions, ask for descriptions, or ask for help with your surroundings. Say ";
-  static const String howToUseWalkthroughPart3 =
-      " when you want to end the conversation. If I detect something important, such as a dangerous obstacle, I can alert you immediately. You're ready to use Vision.";
-  static const String howToUseTitle = "How to Use Vision";
-  static const String howToUseSubtitleSay = "Say";
-  static const String howToUseSubtitleToStart = "to start talking with Vision.";
-  static const String howToUseSubtitleToEnd = "to end the conversation.";
 
   // Network Alerts
   static const String internetLost = "Internet connection lost.";

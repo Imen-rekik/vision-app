@@ -17,6 +17,7 @@ class TranslationService {
   final Map<String, String> _cache = {};
   bool _isDownloading = false;
   bool _needsRetry = false;
+  bool _reconnectListenerRegistered = false;
 
   TranslateLanguage get targetLanguage => _targetLanguage;
   String get currentLocaleCode => _currentLocaleCode;
@@ -46,14 +47,17 @@ class TranslationService {
     _currentLocaleCode = localeCode;
     _targetLanguage = resolveLanguage(localeCode);
 
-    NetworkService().setOnReconnectedCallback(() {
-      if (_needsRetry) {
-        debugPrint(
-          'TranslationService: Network restored. Retrying background model download...',
-        );
-        init(_currentLocaleCode);
-      }
-    });
+    if (!_reconnectListenerRegistered) {
+      _reconnectListenerRegistered = true;
+      NetworkService().addOnReconnectedCallback(() {
+        if (_needsRetry) {
+          debugPrint(
+            'TranslationService: Network restored. Retrying background model download...',
+          );
+          init(_currentLocaleCode);
+        }
+      });
+    }
 
     if (_targetLanguage == TranslateLanguage.english) {
       _needsRetry = false;

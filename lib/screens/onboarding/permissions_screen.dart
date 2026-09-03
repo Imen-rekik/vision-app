@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import '../../app/theme/app_theme.dart';
 import '../../controllers/startup_controller.dart';
 import '../../core/constants/app_strings.dart';
+import '../../services/ai_localization_service.dart';
 import '../../services/onboarding_service.dart';
 import '../../services/permission_service.dart';
 import '../../services/speech_service.dart';
-import '../../services/translation_service.dart';
+import '../../utils/locale_utils.dart';
 import '../../widgets/celestial_background.dart';
 import '../../widgets/glass_card.dart';
 import '../home/home_screen.dart';
@@ -22,7 +23,7 @@ class PermissionsScreen extends StatefulWidget {
 class _PermissionsScreenState extends State<PermissionsScreen> {
   final SpeechService _speechService = SpeechService();
   final PermissionService _permissionService = PermissionService();
-  final TranslationService _translationService = TranslationService();
+  final AiLocalizationService _aiLocalizationService = AiLocalizationService();
 
   bool _isRequesting = false;
   String _titleText = AppStrings.permissionsTitle;
@@ -41,21 +42,16 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
     final resolvedLang =
         preferredLang ?? (deviceLang.isEmpty ? 'en' : deviceLang);
     await _speechService.setLanguage(resolvedLang);
-    await _translationService.init(resolvedLang);
 
-    _titleText = await _translationService.translate(
-      AppStrings.permissionsTitle,
-    );
-    _descriptionText = await _translationService.translate(
-      AppStrings.permissionsDescription,
-    );
+    final languageName = LocaleUtils.getDisplayName(resolvedLang);
+    await _aiLocalizationService.init(resolvedLang, languageName);
+
+    _titleText = _aiLocalizationService.getText('permissionsTitle');
+    _descriptionText = _aiLocalizationService.getText('permissionsDescription');
 
     if (mounted) setState(() {});
 
-    final explanation = await _translationService.translate(
-      AppStrings.permissionsExplanation,
-    );
-    await _speechService.speakAndAwait(explanation);
+    await _aiLocalizationService.speakLocalized('permissionsExplanation');
 
     if (!mounted) return;
     setState(() => _isRequesting = true);
@@ -74,10 +70,7 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
         ),
       );
     } else {
-      final notGranted = await _translationService.translate(
-        AppStrings.permissionsNotGranted,
-      );
-      await _speechService.speakAndAwait(notGranted);
+      await _aiLocalizationService.speakLocalized('permissionsNotGranted');
       if (!mounted) return;
       Navigator.pushReplacement(
         context,

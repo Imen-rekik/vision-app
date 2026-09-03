@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import '../../app/theme/app_theme.dart';
 import '../../controllers/startup_controller.dart';
-import '../../core/constants/app_strings.dart';
+import '../../services/ai_localization_service.dart';
 import '../../services/network_service.dart';
 import '../../services/onboarding_service.dart';
 import '../../services/permission_service.dart';
 import '../../services/speech_service.dart';
-import '../../services/translation_service.dart';
+import '../../utils/locale_utils.dart';
 import '../../widgets/celestial_background.dart';
 import '../../widgets/glass_card.dart';
 import '../home/home_screen.dart';
@@ -24,8 +24,7 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen> {
   final SpeechService _speechService = SpeechService();
   final NetworkService _networkService = NetworkService();
-  final TranslationService _translationService = TranslationService();
-  String _statusText = '';
+  final AiLocalizationService _aiLocalizationService = AiLocalizationService();
 
   @override
   void initState() {
@@ -56,19 +55,10 @@ class _SplashScreenState extends State<SplashScreen> {
 
     await _speechService.setLanguage(resolvedLocale);
 
-    final isEnglish = _translationService.isEnglish(resolvedLocale);
-    if (!isEnglish) {
-      if (mounted) setState(() => _statusText = 'Downloading language pack...');
-    }
+    final languageName = LocaleUtils.getDisplayName(resolvedLocale);
+    await _aiLocalizationService.init(resolvedLocale, languageName);
 
-    await _translationService.init(resolvedLocale);
-
-    if (mounted) setState(() => _statusText = '');
-
-    final welcomeMsg = await _translationService.translate(
-      AppStrings.welcomeToVision,
-    );
-    await _speechService.speakAndAwait(welcomeMsg);
+    await _aiLocalizationService.speakLocalized('welcomeToVision');
     await Future.delayed(const Duration(milliseconds: 1800));
 
     final destination = await startupController.determineDestination();
@@ -167,17 +157,6 @@ class _SplashScreenState extends State<SplashScreen> {
                       strokeWidth: 3,
                     ),
                   ),
-                  if (_statusText.isNotEmpty) ...[
-                    const SizedBox(height: 20),
-                    Text(
-                      _statusText,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.topLightBlue.withValues(alpha: 0.8),
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),

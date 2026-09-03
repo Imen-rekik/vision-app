@@ -45,6 +45,8 @@ class HomeLiveController {
   final List<Uint8List> _audioQueue = [];
   bool _isFeedingAudio = false;
 
+  bool get isConnected => _isConnected;
+
   bool _isMicActive = false;
   bool _isConnected = false;
   bool _flashOn = false;
