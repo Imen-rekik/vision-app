@@ -41,9 +41,7 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
     final resolvedLang =
         preferredLang ?? (deviceLang.isEmpty ? 'en' : deviceLang);
     await _speechService.setLanguage(resolvedLang);
-    if (preferredLang != null && preferredLang.isNotEmpty) {
-      await _translationService.init(preferredLang);
-    }
+    await _translationService.init(resolvedLang);
 
     _titleText = await _translationService.translate(
       AppStrings.permissionsTitle,

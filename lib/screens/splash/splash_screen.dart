@@ -6,6 +6,7 @@ import '../../services/network_service.dart';
 import '../../services/onboarding_service.dart';
 import '../../services/permission_service.dart';
 import '../../services/speech_service.dart';
+import '../../services/translation_service.dart';
 import '../../widgets/celestial_background.dart';
 import '../../widgets/glass_card.dart';
 import '../home/home_screen.dart';
@@ -23,6 +24,8 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen> {
   final SpeechService _speechService = SpeechService();
   final NetworkService _networkService = NetworkService();
+  final TranslationService _translationService = TranslationService();
+  String _statusText = '';
 
   @override
   void initState() {
@@ -43,16 +46,29 @@ class _SplashScreenState extends State<SplashScreen> {
     await _speechService.init();
     await Future.delayed(const Duration(milliseconds: 300));
 
+    final preferredLang = await OnboardingService().getPreferredLanguage();
     final String deviceLocale =
         WidgetsBinding.instance.platformDispatcher.locale.languageCode;
-    final String resolvedLocale = deviceLocale.isEmpty ? 'en' : deviceLocale;
+    final String resolvedLocale =
+        (preferredLang != null && preferredLang.trim().isNotEmpty)
+        ? preferredLang.trim().toLowerCase()
+        : (deviceLocale.isEmpty ? 'en' : deviceLocale.toLowerCase());
 
-    final String welcomeTtsLocale = resolvedLocale.startsWith('en')
-        ? resolvedLocale
-        : 'en-US';
+    await _speechService.setLanguage(resolvedLocale);
 
-    await _speechService.setLanguage(welcomeTtsLocale);
-    await _speechService.speakAndAwait(AppStrings.welcomeToVision);
+    final isEnglish = _translationService.isEnglish(resolvedLocale);
+    if (!isEnglish) {
+      if (mounted) setState(() => _statusText = 'Downloading language pack...');
+    }
+
+    await _translationService.init(resolvedLocale);
+
+    if (mounted) setState(() => _statusText = '');
+
+    final welcomeMsg = await _translationService.translate(
+      AppStrings.welcomeToVision,
+    );
+    await _speechService.speakAndAwait(welcomeMsg);
     await Future.delayed(const Duration(milliseconds: 1800));
 
     final destination = await startupController.determineDestination();
@@ -151,6 +167,17 @@ class _SplashScreenState extends State<SplashScreen> {
                       strokeWidth: 3,
                     ),
                   ),
+                  if (_statusText.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    Text(
+                      _statusText,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.topLightBlue.withValues(alpha: 0.8),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
