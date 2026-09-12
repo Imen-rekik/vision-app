@@ -21,6 +21,8 @@ class AiLocalizationService {
   static const String _localizeUrl =
       'https://vision-ai-relay.vercel.app/api/localize';
 
+  static const Duration _fetchWaitTimeout = Duration(seconds: 20);
+
   static const Map<String, String> _sourceStrings = {
     'welcomeToVision': AppStrings.welcomeToVision,
     'permissionsTitle': AppStrings.permissionsTitle,
@@ -79,7 +81,17 @@ class AiLocalizationService {
       return;
     }
 
-    unawaited(_fetchAndCache(normalized, languageName, missingKeys));
+    final fetchFuture = _fetchAndCache(normalized, languageName, missingKeys);
+
+    await fetchFuture.timeout(
+      _fetchWaitTimeout,
+      onTimeout: () {
+        debugPrint(
+          'AiLocalizationService: $normalized fetch still running after '
+          '${_fetchWaitTimeout.inSeconds}s, continuing in background',
+        );
+      },
+    );
   }
 
   Future<void> _loadCacheFromDisk(String languageCode) async {
@@ -106,6 +118,7 @@ class AiLocalizationService {
   ) async {
     if (_fetchInProgress) return;
     _fetchInProgress = true;
+    final stopwatch = Stopwatch()..start();
 
     try {
       final isOnline = await NetworkService().hasRealInternetAccess();
@@ -138,7 +151,8 @@ class AiLocalizationService {
 
       if (response.statusCode != 200) {
         debugPrint(
-          'AiLocalizationService: fetch failed (${response.statusCode})',
+          'AiLocalizationService: fetch failed (${response.statusCode}) '
+          'after ${stopwatch.elapsedMilliseconds}ms',
         );
         return;
       }
@@ -174,7 +188,10 @@ class AiLocalizationService {
         }
       }
 
-      debugPrint('AiLocalizationService: cache updated for $languageCode');
+      debugPrint(
+        'AiLocalizationService: cache updated for $languageCode in '
+        '${stopwatch.elapsedMilliseconds}ms',
+      );
 
       for (final callback in List<void Function(String)>.from(
         _onReadyCallbacks,
@@ -182,7 +199,10 @@ class AiLocalizationService {
         callback(languageCode);
       }
     } catch (e) {
-      debugPrint('AiLocalizationService: fetch exception: $e');
+      debugPrint(
+        'AiLocalizationService: fetch exception after '
+        '${stopwatch.elapsedMilliseconds}ms: $e',
+      );
     } finally {
       _fetchInProgress = false;
     }

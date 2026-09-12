@@ -100,13 +100,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         preferredLang ?? (deviceLang.isEmpty ? 'en' : deviceLang);
 
     await _speechService.setLanguage(activeLang);
-    if (preferredLang != null && preferredLang.isNotEmpty) {
-      await _translationService.init(preferredLang);
-    }
 
     final languageName = LocaleUtils.getDisplayName(activeLang);
     await _aiLocalizationService.init(activeLang, languageName);
     unawaited(_aiLocalizationService.speakLocalized('settingThingsUp'));
+
+    if (preferredLang != null && preferredLang.isNotEmpty) {
+      unawaited(_translationService.init(preferredLang));
+    }
 
     await _waitForWindowReady();
     await _initializeCamera();
