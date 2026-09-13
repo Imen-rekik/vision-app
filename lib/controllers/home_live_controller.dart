@@ -264,22 +264,26 @@ class HomeLiveController {
               'not flag it. If there truly is a near-term collision or '
               'fall risk (something about to be reached: a wall, door, '
               'furniture, step, curb, drop-off, or fast-approaching '
-              'person/vehicle), call flag_obstacle and warn the user. If '
-              'you already warned about this same obstacle last time and '
-              'nothing meaningful has changed since then, stay silent - do '
-              'not repeat the same warning every check. Only warn again '
-              'about something already mentioned if it has clearly gotten '
-              'more urgent (noticeably closer than before) or a different '
-              'hazard has appeared. Do NOT mention distant or off-path '
+              'person/vehicle), call flag_obstacle with the current '
+              'urgency, even if it is the same obstacle as last check - '
+              'keep the urgency current every check so the vibration '
+              'reflects how close it still is. Only speak out loud if this '
+              'is a hazard you have not mentioned yet, or its urgency has '
+              'clearly increased since your last report on it (noticeably '
+              'closer than before); otherwise call flag_obstacle silently, '
+              'without saying anything. Do NOT mention distant or off-path '
               'objects. Do NOT describe the general scene or say "all '
-              'clear". If there is no near-term obstacle, stay silent.)'
+              'clear". If there is no near-term obstacle at all, stay '
+              'fully silent and do not call flag_obstacle.)'
         : '(SAFETY CHECK during active search for "$searchTarget": Analyze '
               'this frame. First, apply the same near-term obstacle rules '
               'as always - only flag something genuinely close enough to '
               'hit or trip over within 1-2 steps, filling a large portion '
-              'of the frame, not a distant background shape - and only '
-              're-warn about something already mentioned if it has clearly '
-              'gotten more urgent. If no obstacle is in path: if '
+              'of the frame, not a distant background shape. Call '
+              'flag_obstacle with the current urgency every check it is '
+              'still present, but only speak about it if it is new or has '
+              'clearly gotten more urgent since your last report. If no '
+              'obstacle is in path: if '
               '"$searchTarget" is not yet visible, you may give short '
               'scanning guidance or stay silent. If it is visible but not '
               'yet reached, tell the user its location/direction and keep '
@@ -497,13 +501,13 @@ class HomeLiveController {
 
     switch (urgency) {
       case 'high':
-        Vibration.vibrate(duration: 400);
+        Vibration.vibrate(duration: 600);
         break;
       case 'medium':
-        Vibration.vibrate(duration: 250);
+        Vibration.vibrate(duration: 300);
         break;
       default:
-        Vibration.vibrate(duration: 120);
+        Vibration.vibrate(duration: 150);
     }
   }
 
